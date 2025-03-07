@@ -1,0 +1,11 @@
+pub const MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
+pub const VERSION: u8 = 1;
+pub const HEADER_LEN_32: usize = 52;
+pub const HEADER_LEN_64: usize = 64;
+pub const PROGRAM_ENTRY_LEN_32: usize = 32;
+pub const PROGRAM_ENTRY_LEN_64: usize = 56;
+pub const MAX_PROGRAM_ENTRY_LEN: usize = PROGRAM_ENTRY_LEN_64;
+pub const SECTION_ENTRY_LEN_32: usize = 40;
+pub const SECTION_ENTRY_LEN_64: usize = 64;
+pub const MAX_SECTION_ENTRY_LEN: usize = SECTION_ENTRY_LEN_64;
+pub const MAX_ALIGN: usize = 4096;
