@@ -1,0 +1,23 @@
+[package]
+name = "elb-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/elb-cli"
+readme = "README.md"
+description = "Command-line utility that inspects ELF files, prints their dependencies and patches RPATH, RUNPATH and interpreter."
+keywords = ["elf", "patch", "rpath", "runpath", "interpreter"]
+categories = ["encoding", "command-line-utilities", "api-bindings"]
+include = ["**/*.rs", "Cargo.toml", "README.md"]
+
+[dependencies]
+clap = { version = "4.5.31", features = ["derive"] }
+colored = "3.0.0"
+elb = { path = "..", version = "0.1.0" }
+elb-dl = { path = "../dl", version = "0.1.0" }
+env_logger = "0.11.6"
+fs-err = "3.1.0"
+log.workspace = true
+thiserror.workspace = true

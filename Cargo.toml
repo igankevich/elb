@@ -1,0 +1,60 @@
+[package]
+name = "elb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/elb"
+readme = "README.md"
+description = "A library that supports reading ELF files and patching RPATH, RUNPATH and interpreter."
+keywords = ["elf", "patch", "rpath", "runpath", "interpreter"]
+categories = ["encoding", "no-std", "api-bindings"]
+include = ["**/*.rs", "Cargo.toml", "README.md"]
+
+[features]
+default = ["std"]
+std = ["bitflags/std", "log/std", "thiserror/std"]
+
+[dependencies]
+bitflags.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+arbitrary = { version = "1.4.1", features = ["derive"] }
+arbtest = "0.3.2"
+bitflags = { workspace = true, features = ["arbitrary"] }
+fs-err = "3.1.0"
+
+[workspace]
+members = [".", "cli", "dl"]
+default-members = [".", "cli", "dl"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/igankevich/elb"
+repository = "https://github.com/igankevich/elb"
+
+[workspace.dependencies]
+bitflags = { version = "2.9.0", default-features = false, features = [] }
+log = { version = "0.4.26", default-features = false, features = [] }
+thiserror = { version = "2.0.12", default-features = false, features = [] }
+
+[lints]
+workspace = true
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+panic = "deny"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+
+[profile.test.package.sha2]
+opt-level = 3
+
+[profile.test.package.base32]
+opt-level = 3
