@@ -26,8 +26,6 @@ pub enum Error {
     InvalidSegmentLen(u16),
     #[error("Invalid section kind: {0}")]
     InvalidSectionKind(u32),
-    #[error("Invalid section flags: {0}")]
-    InvalidSectionFlags(u64),
     #[error("Invalid section size: {0}")]
     InvalidSectionLen(u16),
     #[error("Invalid LOAD section: should be covered by LOAD segment: {0:#x}..{1:#x}")]

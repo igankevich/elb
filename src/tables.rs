@@ -1,9 +1,7 @@
 use bitflags::bitflags;
 
 use crate::define_specific_enum;
-use crate::Class;
 use crate::Error;
-use crate::Word;
 
 define_specific_enum! {
     FileKind, u16,
@@ -98,15 +96,17 @@ define_specific_enum! {
 }
 
 impl DynamicEntryKind {
-    pub const fn to_word(self, class: Class) -> Word {
-        Word::from_u32(class, self.as_number())
+    pub const fn as_u32(self) -> u32 {
+        self.as_number()
     }
 }
 
-impl TryFrom<Word> for DynamicEntryKind {
+impl TryFrom<u64> for DynamicEntryKind {
     type Error = Error;
-    fn try_from(other: Word) -> Result<Self, Self::Error> {
-        let number: u32 = other.try_into()?;
+    fn try_from(other: u64) -> Result<Self, Self::Error> {
+        let number: u32 = other
+            .try_into()
+            .map_err(|_| Error::TooBig("dynamic-entry-type"))?;
         number.try_into()
     }
 }

@@ -35,17 +35,17 @@ fn do_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
     println!("  File type: {:?}", elf.header.kind);
     println!("  Machine: {:?}", elf.header.machine);
     println!("  Flags: {:#x}", elf.header.flags);
-    println!("  Entry point: {:#x}", elf.header.entry_point.as_u64());
+    println!("  Entry point: {:#x}", elf.header.entry_point);
     println!(
         "  Program header: {:#x}..{:#x}",
-        elf.header.program_header_offset.as_u64(),
-        elf.header.program_header_offset.as_u64()
+        elf.header.program_header_offset,
+        elf.header.program_header_offset
             + elf.header.num_segments as u64 * elf.header.segment_len as u64,
     );
     println!(
         "  Section header: {:#x}..{:#x}",
-        elf.header.section_header_offset.as_u64(),
-        elf.header.section_header_offset.as_u64()
+        elf.header.section_header_offset,
+        elf.header.section_header_offset
             + elf.header.num_sections as u64 * elf.header.section_len as u64,
     );
     println!("\nSections:");
@@ -62,10 +62,10 @@ fn do_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
         Vec::new()
     };
     for section in elf.sections.iter() {
-        let memory_start = section.virtual_address.as_u64();
-        let memory_end = memory_start + section.size.as_u64();
-        let file_start = section.offset.as_u64();
-        let file_end = file_start + section.size.as_u64();
+        let memory_start = section.virtual_address;
+        let memory_end = memory_start + section.size;
+        let file_start = section.offset;
+        let file_end = file_start + section.size;
         let name_bytes = names.get(section.name as usize..).unwrap_or(&[]);
         let name_end = name_bytes.iter().position(|ch| *ch == 0);
         let name = String::from_utf8_lossy(&name_bytes[..name_end.unwrap_or(0)]);
@@ -101,10 +101,10 @@ fn do_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
         );
     }
     for segment in elf.segments.iter() {
-        let memory_start = segment.virtual_address.as_u64();
-        let memory_end = memory_start + segment.memory_size.as_u64();
-        let file_start = segment.offset.as_u64();
-        let file_end = file_start + segment.file_size.as_u64();
+        let memory_start = segment.virtual_address;
+        let memory_end = memory_start + segment.memory_size;
+        let file_start = segment.offset;
+        let file_end = file_start + segment.file_size;
         println!(
             "  {:20}  {:#018x}..{:#018x}  {:#018x}..{:#018x}  {}",
             SegmentKindStr(segment.kind),
@@ -115,6 +115,7 @@ fn do_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
             SegmentFlagsStr(segment.flags),
         );
     }
+    // TODO segment-to-section mapping
     Ok(ExitCode::SUCCESS)
 }
 
