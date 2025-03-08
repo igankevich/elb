@@ -416,15 +416,9 @@ impl ProgramHeader {
     }
 
     fn validate_entry_point(&self, entry_point: u64) -> Result<(), Error> {
-        if self
-            .entries
-            .iter()
-            .find(|segment| {
-                segment.kind == SegmentKind::Loadable
-                    && segment.contains_virtual_address(entry_point)
-            })
-            .is_none()
-        {
+        if !self.entries.iter().any(|segment| {
+            segment.kind == SegmentKind::Loadable && segment.contains_virtual_address(entry_point)
+        }) {
             return Err(Error::InvalidEntryPoint(entry_point));
         }
         Ok(())
@@ -460,21 +454,16 @@ impl ProgramHeader {
         let Some(phdr) = phdr else {
             return Err(Error::InvalidProgramHeaderSegment("No PHDR segment"));
         };
-        if self
-            .entries
-            .iter()
-            .find(|segment| {
-                if segment.kind != SegmentKind::Loadable {
-                    return false;
-                }
-                let segment_start = segment.virtual_address.as_u64();
-                let segment_end = segment_start + segment.memory_size.as_u64();
-                let phdr_start = phdr.virtual_address.as_u64();
-                let phdr_end = phdr_start + phdr.memory_size.as_u64();
-                segment_start <= phdr_start && phdr_start <= segment_end && phdr_end <= segment_end
-            })
-            .is_none()
-        {
+        if !self.entries.iter().any(|segment| {
+            if segment.kind != SegmentKind::Loadable {
+                return false;
+            }
+            let segment_start = segment.virtual_address.as_u64();
+            let segment_end = segment_start + segment.memory_size.as_u64();
+            let phdr_start = phdr.virtual_address.as_u64();
+            let phdr_end = phdr_start + phdr.memory_size.as_u64();
+            segment_start <= phdr_start && phdr_start <= segment_end && phdr_end <= segment_end
+        }) {
             return Err(Error::InvalidProgramHeaderSegment(
                 "PHDR segment should be covered by a LOAD segment",
             ));
@@ -687,7 +676,8 @@ impl Segment {
             let file_size =
                 Word::from_u64(class, segment_after_range.end - segment_after_range.start)
                     .expect("A smaller value than the current one should fit into a word");
-            let virtual_address = Word::from_u64(class, segment_after_range.start).unwrap();
+            let virtual_address = Word::from_u64(class, segment_after_range.start)
+                .expect("We checked for overflow in `validate`");
             let offset = Word::from_u64(
                 class,
                 self.offset.as_u64() + (segment_after_range.start - segment_start),
@@ -707,8 +697,7 @@ impl Segment {
                     }
                     align >>= 1;
                 };
-                let align = Word::from_u64(class, align).expect("Never overflows");
-                align
+                Word::from_u64(class, align).expect("Never overflows")
             };
             Some(Self {
                 kind: self.kind,
@@ -757,25 +746,21 @@ impl Segment {
         if !align_is_valid(align) {
             return Err(Error::InvalidAlign(align));
         }
-        match self.kind {
-            SegmentKind::Loadable => {
-                if align != 0
-                    && self.offset.as_u64() % align != self.virtual_address.as_u64() % align
-                {
-                    let file_start = self.virtual_address.as_u64();
-                    let file_end = file_start + self.file_size.as_u64();
-                    let memory_start = self.virtual_address.as_u64();
-                    let memory_end = memory_start + self.memory_size.as_u64();
-                    return Err(Error::MisalignedSegment(
-                        file_start,
-                        file_end,
-                        memory_start,
-                        memory_end,
-                        align,
-                    ));
-                }
-            }
-            _ => {}
+        if self.kind == SegmentKind::Loadable
+            && align != 0
+            && self.offset.as_u64() % align != self.virtual_address.as_u64() % align
+        {
+            let file_start = self.virtual_address.as_u64();
+            let file_end = file_start + self.file_size.as_u64();
+            let memory_start = self.virtual_address.as_u64();
+            let memory_end = memory_start + self.memory_size.as_u64();
+            return Err(Error::MisalignedSegment(
+                file_start,
+                file_end,
+                memory_start,
+                memory_end,
+                align,
+            ));
         }
         Ok(())
     }
@@ -1056,14 +1041,12 @@ impl Section {
             }
             _ if self.flags.contains(SectionFlags::ALLOC) => {
                 let align = self.align.as_u64();
-                if align > 1 {
-                    if self.offset.as_u64() % align != 0
-                        || self.virtual_address.as_u64() % self.align.as_u64() != 0
-                    {
-                        let section_start = self.virtual_address.as_u64();
-                        let section_end = section_start + self.size.as_u64();
-                        return Err(Error::MisalignedSection(section_start, section_end, align));
-                    }
+                if align > 1 && self.offset.as_u64() % align != 0
+                    || self.virtual_address.as_u64() % self.align.as_u64() != 0
+                {
+                    let section_start = self.virtual_address.as_u64();
+                    let section_end = section_start + self.size.as_u64();
+                    return Err(Error::MisalignedSection(section_start, section_end, align));
                 }
             }
             _ => {}
@@ -1076,17 +1059,13 @@ impl Section {
         let section_start = self.virtual_address.as_u64();
         let section_end = section_start + self.size.as_u64();
         if self.flags.contains(SectionFlags::ALLOC)
-            && program_header
-                .entries
-                .iter()
-                .find(|segment| {
-                    let segment_start = segment.virtual_address.as_u64();
-                    let segment_end = segment_start + segment.memory_size.as_u64();
-                    segment_start <= section_start
-                        && section_start < segment_end
-                        && section_end <= segment_end
-                })
-                .is_none()
+            && !program_header.entries.iter().any(|segment| {
+                let segment_start = segment.virtual_address.as_u64();
+                let segment_end = segment_start + segment.memory_size.as_u64();
+                segment_start <= section_start
+                    && section_start < segment_end
+                    && section_end <= segment_end
+            })
         {
             return Err(Error::SectionNotCovered(section_start, section_end));
         }

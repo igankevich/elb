@@ -2,8 +2,8 @@ use bitflags::bitflags;
 
 use crate::define_specific_enum;
 use crate::Class;
-use crate::Word;
 use crate::Error;
+use crate::Word;
 
 define_specific_enum! {
     FileKind, u16,
@@ -107,7 +107,7 @@ impl TryFrom<Word> for DynamicEntryKind {
     type Error = Error;
     fn try_from(other: Word) -> Result<Self, Self::Error> {
         let number: u32 = other.try_into()?;
-        Ok(number.try_into()?)
+        number.try_into()
     }
 }
 
