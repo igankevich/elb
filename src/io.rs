@@ -1,8 +1,8 @@
-use std::io::Error;
 use std::io::ErrorKind;
 use std::io::Write;
 
 use crate::constants::*;
+use crate::Error;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary))]
@@ -27,14 +27,14 @@ impl Class {
         }
     }
 
-    pub const fn program_entry_len(self) -> u16 {
+    pub const fn segment_len(self) -> u16 {
         match self {
             Self::Elf32 => PROGRAM_ENTRY_LEN_32 as u16,
             Self::Elf64 => PROGRAM_ENTRY_LEN_64 as u16,
         }
     }
 
-    pub const fn section_entry_len(self) -> u16 {
+    pub const fn section_len(self) -> u16 {
         match self {
             Self::Elf32 => SECTION_ENTRY_LEN_32 as u16,
             Self::Elf64 => SECTION_ENTRY_LEN_64 as u16,
@@ -48,7 +48,7 @@ impl TryFrom<u8> for Class {
         match other {
             1 => Ok(Self::Elf32),
             2 => Ok(Self::Elf64),
-            _ => Err(ErrorKind::InvalidData.into()),
+            n => Err(Error::InvalidClass(n)),
         }
     }
 }
@@ -69,7 +69,7 @@ impl ByteOrder {
         }
     }
 
-    pub fn write_u16<W: Write>(self, mut writer: W, value: u16) -> Result<(), Error> {
+    pub fn write_u16<W: Write>(self, mut writer: W, value: u16) -> Result<(), std::io::Error> {
         let bytes = match self {
             Self::LittleEndian => value.to_le_bytes(),
             Self::BigEndian => value.to_be_bytes(),
@@ -84,7 +84,7 @@ impl ByteOrder {
         }
     }
 
-    pub fn write_u32<W: Write>(self, mut writer: W, value: u32) -> Result<(), Error> {
+    pub fn write_u32<W: Write>(self, mut writer: W, value: u32) -> Result<(), std::io::Error> {
         let bytes = match self {
             Self::LittleEndian => value.to_le_bytes(),
             Self::BigEndian => value.to_be_bytes(),
@@ -99,7 +99,7 @@ impl TryFrom<u8> for ByteOrder {
         match other {
             1 => Ok(Self::LittleEndian),
             2 => Ok(Self::BigEndian),
-            _ => Err(ErrorKind::InvalidData.into()),
+            n => Err(Error::InvalidByteOrder(n)),
         }
     }
 }
@@ -221,6 +221,15 @@ impl TryFrom<Word> for u32 {
         match word {
             Word::U32(x) => Ok(x),
             Word::U64(x) => Ok(x.try_into().map_err(|_| ErrorKind::InvalidData)?),
+        }
+    }
+}
+
+impl std::fmt::Display for Word {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Word::U32(x) => write!(f, "{}", x),
+            Word::U64(x) => write!(f, "{}", x),
         }
     }
 }

@@ -1,8 +1,23 @@
 [package]
-name = "elfe"
-version = "0.1.0"
-edition = "2021"
+name = "elfie"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
 arbtest = "0.3.2"
+bitflags = "2.9.0"
+thiserror = "2.0.12"
+
+[dev-dependencies]
+bitflags = { version = "2.9.0", features = ["arbitrary"] }
+
+[workspace]
+members = [".", "cli"]
+default-members = [".", "cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"

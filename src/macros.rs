@@ -2,6 +2,7 @@ macro_rules! define_specific_enum {
     {
         $enum:ident,
         $int:ident,
+        $error:ident,
         $(($name:ident, $value:expr),)*
         $(Range($name2:ident ($low:expr, $high:expr)),)*
     } => {
@@ -19,29 +20,15 @@ macro_rules! define_specific_enum {
                     $( Self::$name2(n) => n, )*
                 }
             }
-
-            pub fn validate(self) -> Result<(), std::io::Error> {
-                match self {
-                    $(
-                        Self::$name2(n) => if !($low..=$high).contains(&n) {
-                            return Err(
-                                std::io::Error::other(concat!("Invalid ", stringify!($enum)))
-                            );
-                        }
-                    )*
-                    _ => {}
-                }
-                Ok(())
-            }
         }
 
         impl TryFrom<$int> for $enum {
-            type Error = std::io::Error;
+            type Error = crate::Error;
             fn try_from(n: $int) -> Result<Self, Self::Error> {
                 match n {
                     $( $value => Ok(Self::$name), )*
                     $( $low..=$high => Ok(Self::$name2(n)), )*
-                    _ => Err(std::io::ErrorKind::InvalidData.into()),
+                    n => Err(crate::Error::$error(n)),
                 }
             }
         }
