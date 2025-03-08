@@ -12,6 +12,7 @@ use crate::validation::*;
 use crate::ByteOrder;
 use crate::Class;
 use crate::Error;
+use crate::FileKind;
 use crate::Header;
 use crate::ProgramHeader;
 use crate::SectionFlags;
@@ -55,9 +56,9 @@ impl SectionHeader {
         Ok(())
     }
 
-    pub fn validate(&self, class: Class, program_header: &ProgramHeader) -> Result<(), Error> {
+    pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
         for section in self.entries.iter() {
-            section.validate(class, program_header)?;
+            section.validate(header, program_header)?;
         }
         Ok(())
     }
@@ -202,10 +203,12 @@ impl Section {
         zero(writer, self.offset, self.size)
     }
 
-    pub fn validate(&self, class: Class, program_header: &ProgramHeader) -> Result<(), Error> {
-        self.validate_overflow(class)?;
+    pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
+        self.validate_overflow(header.class)?;
         self.validate_align()?;
-        self.validate_coverage(program_header)?;
+        if header.kind != FileKind::Relocatable {
+            self.validate_coverage(program_header)?;
+        }
         Ok(())
     }
 
@@ -253,7 +256,8 @@ impl Section {
         // TODO this is quadratic
         let section_start = self.virtual_address;
         let section_end = section_start + self.size;
-        if self.flags.contains(SectionFlags::ALLOC)
+        if section_start != section_end
+            && self.flags.contains(SectionFlags::ALLOC)
             && !program_header.iter().any(|segment| {
                 let segment_start = segment.virtual_address;
                 let segment_end = segment_start + segment.memory_size;

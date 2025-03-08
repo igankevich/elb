@@ -12,9 +12,24 @@ use fs_err::File;
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
-    /// ELF file.
-    #[clap(value_name = "ELF file")]
-    file: PathBuf,
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Show file contents.
+    Show {
+        /// ELF file.
+        #[clap(value_name = "ELF file")]
+        file: PathBuf,
+    },
+    /// Validate the file.
+    Check {
+        /// ELF file.
+        #[clap(value_name = "ELF file")]
+        file: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -25,7 +40,14 @@ fn main() -> ExitCode {
 
 fn do_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let mut file = File::open(&args.file)?;
+    match args.command {
+        Command::Show { file } => show(file),
+        Command::Check { file } => check(file),
+    }
+}
+
+fn show(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let mut file = File::open(&file)?;
     let elf = Elf::read(&mut file)?;
     println!("Elf:");
     println!("  Class: {:?}", elf.header.class);
@@ -115,7 +137,15 @@ fn do_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
             SegmentFlagsStr(segment.flags),
         );
     }
+    elf.validate()?;
     // TODO segment-to-section mapping
+    Ok(ExitCode::SUCCESS)
+}
+
+fn check(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let mut file = File::open(&file)?;
+    let elf = Elf::read(&mut file)?;
+    elf.validate()?;
     Ok(ExitCode::SUCCESS)
 }
 

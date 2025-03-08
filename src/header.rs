@@ -1,3 +1,4 @@
+use std::io::ErrorKind::UnexpectedEof;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -36,7 +37,12 @@ pub struct Header {
 impl Header {
     pub fn read<R: Read>(mut reader: R) -> Result<Self, Error> {
         let mut buf = [0_u8; MAX_HEADER_LEN];
-        reader.read_exact(&mut buf[..5])?;
+        reader.read_exact(&mut buf[..5]).map_err(|e| {
+            if e.kind() == UnexpectedEof {
+                return Error::NotElf;
+            }
+            e.into()
+        })?;
         if buf[..MAGIC.len()] != MAGIC {
             return Err(Error::NotElf);
         }
@@ -162,13 +168,13 @@ impl Header {
     }
 
     pub fn validate(&self) -> Result<(), Error> {
-        if self.len > HEADER_LEN_64 as u16 {
+        if self.len != self.class.header_len() {
             return Err(Error::InvalidHeaderLen(self.len));
         }
-        if self.section_len != self.class.section_len() {
+        if self.section_len != 0 && self.section_len != self.class.section_len() {
             return Err(Error::InvalidSectionLen(self.section_len));
         }
-        if self.segment_len != self.class.segment_len() {
+        if self.segment_len != 0 && self.segment_len != self.class.segment_len() {
             return Err(Error::InvalidSegmentLen(self.segment_len));
         }
         let (segments_range, sections_range) = match self.class {

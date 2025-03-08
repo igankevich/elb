@@ -190,11 +190,6 @@ impl ProgramHeader {
                     phdr = Some(segment);
                 }
                 SegmentKind::Loadable => {
-                    if phdr.is_none() {
-                        return Err(Error::InvalidProgramHeaderSegment(
-                            "PHDR segment should come before any LOAD segment",
-                        ));
-                    }
                     load_found = true;
                 }
                 _ => {}
@@ -203,22 +198,21 @@ impl ProgramHeader {
                 break;
             }
         }
-        let Some(phdr) = phdr else {
-            return Err(Error::InvalidProgramHeaderSegment("No PHDR segment"));
-        };
-        if !self.entries.iter().any(|segment| {
-            if segment.kind != SegmentKind::Loadable {
-                return false;
+        if let Some(phdr) = phdr {
+            if !self.entries.iter().any(|segment| {
+                if segment.kind != SegmentKind::Loadable {
+                    return false;
+                }
+                let segment_start = segment.virtual_address;
+                let segment_end = segment_start + segment.memory_size;
+                let phdr_start = phdr.virtual_address;
+                let phdr_end = phdr_start + phdr.memory_size;
+                segment_start <= phdr_start && phdr_start <= segment_end && phdr_end <= segment_end
+            }) {
+                return Err(Error::InvalidProgramHeaderSegment(
+                    "PHDR segment should be covered by a LOAD segment",
+                ));
             }
-            let segment_start = segment.virtual_address;
-            let segment_end = segment_start + segment.memory_size;
-            let phdr_start = phdr.virtual_address;
-            let phdr_end = phdr_start + phdr.memory_size;
-            segment_start <= phdr_start && phdr_start <= segment_end && phdr_end <= segment_end
-        }) {
-            return Err(Error::InvalidProgramHeaderSegment(
-                "PHDR segment should be covered by a LOAD segment",
-            ));
         }
         Ok(())
     }

@@ -16,11 +16,8 @@ pub struct Elf {
 impl Elf {
     pub fn read<R: Read + Seek>(mut reader: R) -> Result<Self, Error> {
         let header = Header::read(&mut reader)?;
-        header.validate()?;
         let segments = ProgramHeader::read(&mut reader, &header)?;
-        segments.validate(&header)?;
         let sections = SectionHeader::read(&mut reader, &header)?;
-        sections.validate(header.class, &segments)?;
         Ok(Self {
             header,
             segments,
@@ -31,7 +28,7 @@ impl Elf {
     pub fn validate(&self) -> Result<(), Error> {
         self.header.validate()?;
         self.segments.validate(&self.header)?;
-        self.sections.validate(self.header.class, &self.segments)?;
+        self.sections.validate(&self.header, &self.segments)?;
         Ok(())
     }
 }

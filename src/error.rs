@@ -28,7 +28,7 @@ pub enum Error {
     InvalidSectionKind(u32),
     #[error("Invalid section size: {0}")]
     InvalidSectionLen(u16),
-    #[error("Invalid LOAD section: should be covered by LOAD segment: {0:#x}..{1:#x}")]
+    #[error("Invalid ALLOC section: should be covered by LOAD segment: {0:#x}..{1:#x}")]
     SectionNotCovered(u64, u64),
     #[error("Invalid dynamic entry kind: {0}")]
     InvalidDynamicEntryKind(u32),
