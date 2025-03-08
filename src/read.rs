@@ -19,8 +19,6 @@ use crate::SegmentFlags;
 use crate::SegmentKind;
 use crate::Word;
 
-// TODO validate phdr, alignment, section-to-segment mapping, that allocations don't overlap
-
 #[derive(Debug)]
 pub struct Elf {
     pub header: Header,
@@ -31,7 +29,9 @@ pub struct Elf {
 impl Elf {
     pub fn read<R: Read + Seek>(mut reader: R) -> Result<Self, Error> {
         let header = Header::read(&mut reader)?;
+        header.validate()?;
         let segments = ProgramHeader::read(&mut reader, &header)?;
+        segments.validate(&header)?;
         let sections = SectionHeader::read(&mut reader, &header)?;
         sections.validate(&segments)?;
         Ok(Self {
@@ -169,7 +169,6 @@ impl Header {
             section_names_index,
             len: real_header_len,
         };
-        ret.validate()?;
         Ok(ret)
     }
 
@@ -289,7 +288,6 @@ impl ProgramHeader {
             entries.push(entry);
         }
         let ret = Self { entries };
-        ret.validate(header)?;
         Ok(ret)
     }
 
@@ -416,9 +414,12 @@ impl ProgramHeader {
     }
 
     fn validate_entry_point(&self, entry_point: u64) -> Result<(), Error> {
-        if !self.entries.iter().any(|segment| {
-            segment.kind == SegmentKind::Loadable && segment.contains_virtual_address(entry_point)
-        }) {
+        if entry_point != 0
+            && !self.entries.iter().any(|segment| {
+                segment.kind == SegmentKind::Loadable
+                    && segment.contains_virtual_address(entry_point)
+            })
+        {
             return Err(Error::InvalidEntryPoint(entry_point));
         }
         Ok(())
@@ -506,7 +507,7 @@ impl Segment {
         entry_len: u16,
     ) -> Result<Self, Error> {
         assert_eq!(class.segment_len(), entry_len);
-        let mut buf = [0_u8; MAX_PROGRAM_ENTRY_LEN];
+        let mut buf = [0_u8; MAX_SEGMENT_LEN];
         reader.read_exact(&mut buf[..entry_len as usize])?;
         let slice = &buf[..];
         let kind: SegmentKind = byte_order.get_u32(slice).try_into()?;
@@ -908,7 +909,7 @@ impl Section {
         entry_len: u16,
     ) -> Result<Self, Error> {
         assert_eq!(class.section_len(), entry_len);
-        let mut buf = [0_u8; MAX_SECTION_ENTRY_LEN];
+        let mut buf = [0_u8; MAX_SECTION_LEN];
         reader.read_exact(&mut buf[..entry_len as usize])?;
         let word_len = class.word_len();
         let slice = &buf[..];
@@ -1362,16 +1363,21 @@ mod tests {
                 kind: FileKind::Executable,
                 machine: 0,
                 flags: 0,
-                entry_point: Word::arbitrary(u, class)?,
+                entry_point: Word::from_u64(class, 0).unwrap(),
                 section_header_offset: Word::arbitrary(u, class)?,
                 section_len: 0,
                 num_sections: 0,
                 section_names_index: 0,
                 len: class.header_len(),
             };
-            expected.write(&mut cursor, &header).unwrap();
+            expected
+                .write(&mut cursor, &header)
+                .inspect_err(|e| panic!("Failed to write {:#?} {:#?}: {e}", header, expected))
+                .unwrap();
             cursor.set_position(0);
-            let actual = ProgramHeader::read(&mut cursor, &header).unwrap();
+            let actual = ProgramHeader::read(&mut cursor, &header)
+                .inspect_err(|e| panic!("Failed to read {:#?} {:#?}: {e}", header, expected))
+                .unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });
@@ -1433,9 +1439,14 @@ mod tests {
         arbtest(|u| {
             let expected: Header = u.arbitrary()?;
             let mut cursor = Cursor::new(Vec::new());
-            expected.write(&mut cursor).unwrap();
+            expected
+                .write(&mut cursor)
+                .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
+                .unwrap();
             cursor.set_position(0);
-            let actual = Header::read(&mut cursor).unwrap();
+            let actual = Header::read(&mut cursor)
+                .inspect_err(|e| panic!("Failed to read {:#?}: {e}", expected))
+                .unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });
@@ -1450,11 +1461,18 @@ mod tests {
             let kind = u.arbitrary()?;
             let machine = u.arbitrary()?;
             let flags = u.arbitrary()?;
-            let segment_len = u.arbitrary()?;
-            let num_segments = u.arbitrary()?;
-            let section_len = u.arbitrary()?;
-            let num_sections = u.arbitrary()?;
-            let section_names_index = u.arbitrary()?;
+            let segment_len = class.segment_len();
+            let num_segments = u.int_in_range(0..=100)?;
+            let section_len = class.section_len();
+            let num_sections = u.int_in_range(0..=100)?;
+            let section_names_index = {
+                let m = if num_sections == 0 {
+                    0
+                } else {
+                    num_sections - 1
+                };
+                u.int_in_range(0..=m)?
+            };
             let ret = match class {
                 Class::Elf32 => Self {
                     class,
@@ -1465,10 +1483,10 @@ mod tests {
                     machine,
                     flags,
                     entry_point: Word::U32(u.arbitrary()?),
-                    program_header_offset: Word::U32(u.arbitrary()?),
+                    program_header_offset: Word::U32(u.int_in_range(0..=u32::MAX / 3)?),
                     segment_len,
                     num_segments,
-                    section_header_offset: Word::U32(u.arbitrary()?),
+                    section_header_offset: Word::U32(u.int_in_range(u32::MAX / 3 * 2..=u32::MAX)?),
                     section_len,
                     num_sections,
                     section_names_index,
@@ -1483,10 +1501,10 @@ mod tests {
                     machine,
                     flags,
                     entry_point: Word::U64(u.arbitrary()?),
-                    program_header_offset: Word::U64(u.arbitrary()?),
+                    program_header_offset: Word::U64(u.int_in_range(0..=u64::MAX / 3)?),
                     segment_len,
                     num_segments,
-                    section_header_offset: Word::U64(u.arbitrary()?),
+                    section_header_offset: Word::U64(u.int_in_range(u64::MAX / 3 * 2..=u64::MAX)?),
                     section_len,
                     num_sections,
                     section_names_index,
@@ -1499,8 +1517,8 @@ mod tests {
 
     impl ProgramHeader {
         fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
-            let num_entries = u.arbitrary_len::<[u8; MAX_PROGRAM_ENTRY_LEN]>()?;
-            let mut entries = Vec::with_capacity(num_entries);
+            let num_entries = u.arbitrary_len::<[u8; MAX_SEGMENT_LEN]>()?;
+            let mut entries: Vec<Segment> = Vec::with_capacity(num_entries);
             for _ in 0..num_entries {
                 entries.push(Segment::arbitrary(u, class)?);
             }
@@ -1521,7 +1539,7 @@ mod tests {
                     physical_address: Word::U32(u.arbitrary()?),
                     file_size: Word::U32(u.arbitrary()?),
                     memory_size: Word::U32(u.arbitrary()?),
-                    align: Word::U32(u.arbitrary()?),
+                    align: Word::U32(1_u32 << u.int_in_range(0..=31)?),
                 },
                 Class::Elf64 => Self {
                     kind,
@@ -1531,7 +1549,7 @@ mod tests {
                     physical_address: Word::U64(u.arbitrary()?),
                     file_size: Word::U64(u.arbitrary()?),
                     memory_size: Word::U64(u.arbitrary()?),
-                    align: Word::U64(u.arbitrary()?),
+                    align: Word::U64(1_u64 << u.int_in_range(0..=63)?),
                 },
             };
             Ok(ret)
@@ -1540,7 +1558,7 @@ mod tests {
 
     impl SectionHeader {
         fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
-            let num_entries = u.arbitrary_len::<[u8; MAX_SECTION_ENTRY_LEN]>()?;
+            let num_entries = u.arbitrary_len::<[u8; MAX_SECTION_LEN]>()?;
             let mut entries = Vec::with_capacity(num_entries);
             for _ in 0..num_entries {
                 entries.push(Section::arbitrary(u, class)?);

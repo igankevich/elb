@@ -29,15 +29,15 @@ impl Class {
 
     pub const fn segment_len(self) -> u16 {
         match self {
-            Self::Elf32 => PROGRAM_ENTRY_LEN_32 as u16,
-            Self::Elf64 => PROGRAM_ENTRY_LEN_64 as u16,
+            Self::Elf32 => SEGMENT_LEN_32 as u16,
+            Self::Elf64 => SEGMENT_LEN_64 as u16,
         }
     }
 
     pub const fn section_len(self) -> u16 {
         match self {
-            Self::Elf32 => SECTION_ENTRY_LEN_32 as u16,
-            Self::Elf64 => SECTION_ENTRY_LEN_64 as u16,
+            Self::Elf32 => SECTION_LEN_32 as u16,
+            Self::Elf64 => SECTION_LEN_64 as u16,
         }
     }
 }
@@ -180,6 +180,13 @@ impl Word {
         match self {
             Self::U32(..) => 4,
             Self::U64(..) => 8,
+        }
+    }
+
+    pub fn as_u32(self) -> Option<u32> {
+        match self {
+            Self::U32(x) => Some(x),
+            Self::U64(x) => x.try_into().ok(),
         }
     }
 
