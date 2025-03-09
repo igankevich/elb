@@ -44,7 +44,6 @@ impl Allocations {
                 }
             } else {
                 if let Some(start) = start {
-                    log::trace!("Checking free file space {:#x}..{:#x}", start, offset);
                     if offset - start >= size {
                         log::trace!("Allocating file block {:#x}..{:#x}", start, start + size);
                         return Some(*start);
@@ -71,7 +70,6 @@ impl Allocations {
                 }
             } else {
                 if let Some(start) = start {
-                    log::trace!("Checking free memory space {:#x}..{:#x}", start, offset);
                     if offset - start >= size {
                         let padding = calc_padding(*start, file_offset, align)?;
                         let padded_size = padding.checked_add(size)?;

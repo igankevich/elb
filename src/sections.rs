@@ -63,12 +63,8 @@ impl SectionHeader {
         Ok(())
     }
 
-    pub fn finish(&mut self) {
-        self.entries.sort_unstable_by_key(|section| section.virtual_address);
-    }
-
     pub(crate) fn free<W: Write + Seek>(&mut self, writer: W, i: usize) -> Result<Section, Error> {
-        let section = self.entries.remove(i);
+        let section = std::mem::take(&mut self.entries[i]);
         log::trace!(
             "Freeing file block {:#x}..{:#x}",
             section.offset,
@@ -113,6 +109,21 @@ pub struct Section {
 }
 
 impl Section {
+    pub fn null() -> Self {
+        Self {
+            name_offset: 0,
+            kind: SectionKind::Null,
+            flags: SectionFlags::from_bits_retain(0),
+            virtual_address: 0,
+            offset: 0,
+            size: 0,
+            link: 0,
+            info: 0,
+            align: 0,
+            entry_len: 0,
+        }
+    }
+
     pub fn read<R: Read>(
         mut reader: R,
         class: Class,
@@ -230,6 +241,9 @@ impl Section {
     }
 
     pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
+        if self.kind == SectionKind::Null {
+            return Ok(());
+        }
         self.validate_overflow(header.class)?;
         self.validate_align()?;
         if header.kind != FileKind::Relocatable {
@@ -295,6 +309,12 @@ impl Section {
             return Err(Error::SectionNotCovered(section_start, section_end));
         }
         Ok(())
+    }
+}
+
+impl Default for Section {
+    fn default() -> Self {
+        Self::null()
     }
 }
 

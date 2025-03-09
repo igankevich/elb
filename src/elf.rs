@@ -41,7 +41,8 @@ impl Elf {
         Ok(elf)
     }
 
-    pub fn write<W: Write + Seek>(&self, mut writer: W) -> Result<(), Error> {
+    pub fn write<W: Write + Seek>(mut self, mut writer: W) -> Result<(), Error> {
+        self.finish();
         self.validate()?;
         self.header.write(&mut writer)?;
         self.segments.write(&mut writer, &self.header)?;
@@ -56,23 +57,12 @@ impl Elf {
         Ok(())
     }
 
-    /// Sort segments and sections.
-    ///
-    /// Should be called before writing modified in-memory ELF reprensentation to a file.
-    pub fn finish(&mut self) {
+    fn finish(&mut self) {
         self.segments.finish();
-        self.sections.finish();
     }
 
     pub fn remove_interpreter<F: Read + Write + Seek>(&mut self, mut file: F) -> Result<(), Error> {
-        let names = {
-            let section = self.sections.get(self.header.section_names_index as usize);
-            if let Some(section) = section {
-                section.read_content(&mut file)?
-            } else {
-                Vec::new()
-            }
-        };
+        let names = self.read_section_names(&mut file)?;
         // Free existing `.interp` section if any.
         let interpreter_section_index = self.sections.iter().position(|section| {
             if section.kind != SectionKind::ProgramData {
@@ -82,7 +72,7 @@ impl Elf {
             Ok(INTERP_SECTION) == CStr::from_bytes_until_nul(c_str_bytes)
         });
         if let Some(i) = interpreter_section_index {
-            self.free_section(&mut file, i)?;
+            self.free_section(&mut file, i, &names)?;
         }
         // Free existing `INTERP` segment if any.
         let interp_segment_index = self
@@ -95,6 +85,18 @@ impl Elf {
         Ok(())
     }
 
+    pub fn read_section_names<F: Read + Write + Seek>(
+        &mut self,
+        mut file: F,
+    ) -> Result<Vec<u8>, Error> {
+        let section = self.sections.get(self.header.section_names_index as usize);
+        if let Some(section) = section {
+            section.read_content(&mut file)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
     pub fn set_interpreter<F: Read + Write + Seek>(
         &mut self,
         mut file: F,
@@ -102,19 +104,23 @@ impl Elf {
     ) -> Result<(), Error> {
         self.remove_interpreter(&mut file)?;
         let interpreter = interpreter.to_bytes_with_nul();
-        let name_offset = self.get_name_offset(&mut file, INTERP_SECTION)?;
-        let i = self.alloc_section(Section {
-            name_offset,
-            kind: SectionKind::ProgramData,
-            flags: SectionFlags::ALLOC,
-            virtual_address: 0,
-            offset: 0,
-            size: interpreter.len() as u64,
-            link: 0,
-            info: 0,
-            align: 1,
-            entry_len: 0,
-        })?;
+        let names = self.read_section_names(&mut file)?;
+        let (name_offset, names) = self.get_name_offset(&mut file, INTERP_SECTION, names)?;
+        let i = self.alloc_section(
+            Section {
+                name_offset,
+                kind: SectionKind::ProgramData,
+                flags: SectionFlags::ALLOC,
+                virtual_address: 0,
+                offset: 0,
+                size: interpreter.len() as u64,
+                link: 0,
+                info: 0,
+                align: 1,
+                entry_len: 0,
+            },
+            &names,
+        )?;
         let section = &self.sections[i];
         section.write_out(&mut file, interpreter)?;
         self.segments.push(Segment {
@@ -137,19 +143,15 @@ impl Elf {
         &mut self,
         mut file: F,
         name: &CStr,
-    ) -> Result<u32, Error> {
-        let mut names = {
-            let section = self.sections.get(self.header.section_names_index as usize);
-            if let Some(section) = section {
-                section.read_content(&mut file)?
-            } else {
-                Vec::new()
-            }
-        };
+        mut names: Vec<u8>,
+    ) -> Result<(u32, Vec<u8>), Error> {
         let name_offset = match find_name(&names, name.to_bytes_with_nul()) {
-            Some(name_offset) => name_offset,
+            Some(name_offset) => {
+                log::trace!("Found section name {:?} at offset {}", name, name_offset);
+                name_offset
+            }
             None => {
-                self.free_section(&mut file, self.header.section_names_index as usize)?;
+                self.free_section(&mut file, self.header.section_names_index as usize, &names)?;
                 let outer_name_offset = names.len();
                 log::trace!("Adding section name {:?}", name);
                 names.extend_from_slice(name.to_bytes_with_nul());
@@ -162,20 +164,23 @@ impl Elf {
                         offset
                     }
                 };
-                let i = self.alloc_section(Section {
-                    name_offset: name_offset
-                        .try_into()
-                        .map_err(|_| Error::TooBig("Section name"))?,
-                    kind: SectionKind::ProgramData,
-                    flags: SectionFlags::ALLOC,
-                    virtual_address: 0,
-                    offset: 0,
-                    size: names.len() as u64,
-                    link: 0,
-                    info: 0,
-                    align: 1,
-                    entry_len: 0,
-                })?;
+                let i = self.alloc_section(
+                    Section {
+                        name_offset: name_offset
+                            .try_into()
+                            .map_err(|_| Error::TooBig("Section name"))?,
+                        kind: SectionKind::ProgramData,
+                        flags: SectionFlags::ALLOC,
+                        virtual_address: 0,
+                        offset: 0,
+                        size: names.len() as u64,
+                        link: 0,
+                        info: 0,
+                        align: 1,
+                        entry_len: 0,
+                    },
+                    &names,
+                )?;
                 self.sections[i].write_out(&mut file, &names)?;
                 self.header.section_names_index = i
                     .try_into()
@@ -183,9 +188,10 @@ impl Elf {
                 outer_name_offset
             }
         };
-        name_offset
+        let name_offset: u32 = name_offset
             .try_into()
-            .map_err(|_| Error::TooBig("Section name"))
+            .map_err(|_| Error::TooBig("Section name"))?;
+        Ok((name_offset, names))
     }
 
     fn free_segment<W: Write + Seek>(&mut self, writer: W, i: usize) -> Result<(), Error> {
@@ -194,6 +200,7 @@ impl Elf {
         Ok(())
     }
 
+    #[allow(unused)]
     fn alloc_segment(&mut self, mut segment: Segment) -> Result<usize, Error> {
         segment.offset = self
             .alloc_file_block(segment.file_size)
@@ -208,22 +215,51 @@ impl Elf {
         Ok(i)
     }
 
-    fn free_section<W: Write + Seek>(&mut self, writer: W, i: usize) -> Result<(), Error> {
-        self.sections.free(writer, i)?;
-        self.header.num_sections -= 1;
-        Ok(())
+    fn free_section<W: Write + Seek>(
+        &mut self,
+        writer: W,
+        i: usize,
+        names: &[u8],
+    ) -> Result<Section, Error> {
+        let section = self.sections.free(writer, i)?;
+        let c_str_bytes = names.get(section.name_offset as usize..).unwrap_or(&[]);
+        let name = CStr::from_bytes_until_nul(c_str_bytes).unwrap_or_default();
+        log::trace!(
+            "Removing section {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}",
+            name,
+            section.offset,
+            section.offset + section.size,
+            section.virtual_address,
+            section.virtual_address + section.size
+        );
+        Ok(section)
     }
 
-    fn alloc_section(&mut self, mut section: Section) -> Result<usize, Error> {
+    fn alloc_section(&mut self, mut section: Section, names: &[u8]) -> Result<usize, Error> {
         section.offset = self
             .alloc_file_block(section.size)
             .ok_or(Error::FileBlockAlloc)?;
         section.virtual_address = self
             .alloc_memory_block(section.size, section.align, section.offset)
             .ok_or(Error::MemoryBlockAlloc)?;
+        if self.sections.last().map(|section| section.kind) == Some(SectionKind::Null) {
+            self.sections.pop();
+        }
+        log::trace!(
+            "Adding section {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}",
+            get_name(names, section.name_offset as usize),
+            section.offset,
+            section.offset + section.size,
+            section.virtual_address,
+            section.virtual_address + section.size
+        );
         let i = self.sections.len();
         self.sections.push(section);
-        self.header.num_sections += 1;
+        self.header.num_sections = self
+            .sections
+            .len()
+            .try_into()
+            .map_err(|_| Error::TooBig("No. of sections"))?;
         Ok(i)
     }
 
@@ -243,7 +279,7 @@ impl Elf {
         allocations.extend(
             self.sections
                 .iter()
-                .filter(|section| section.kind != SectionKind::NoBits)
+                .filter(|section| matches!(section.kind, SectionKind::NoBits | SectionKind::Null))
                 .map(|section| (section.offset, section.offset + section.size)),
         );
         allocations.extend(
@@ -257,12 +293,17 @@ impl Elf {
 
     fn alloc_memory_block(&self, size: u64, align: u64, file_offset: u64) -> Option<u64> {
         let mut allocations = Allocations::new();
-        allocations.extend(self.sections.iter().map(|section| {
-            (
-                section.virtual_address,
-                section.virtual_address + section.size,
-            )
-        }));
+        allocations.extend(
+            self.sections
+                .iter()
+                .filter(|section| matches!(section.kind, SectionKind::Null))
+                .map(|section| {
+                    (
+                        section.virtual_address,
+                        section.virtual_address + section.size,
+                    )
+                }),
+        );
         allocations.extend(self.segments.iter().map(|segment| {
             (
                 segment.virtual_address,
@@ -294,6 +335,11 @@ fn find_name(names: &[u8], name: &[u8]) -> Option<usize> {
         }
     }
     None
+}
+
+fn get_name(names: &[u8], offset: usize) -> &CStr {
+    let c_str_bytes = names.get(offset..).unwrap_or(&[]);
+    CStr::from_bytes_until_nul(c_str_bytes).unwrap_or_default()
 }
 
 #[cfg(test)]

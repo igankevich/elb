@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -56,14 +57,6 @@ impl ProgramHeader {
         Ok(())
     }
 
-    pub fn get(&self, kind: SegmentKind) -> Option<&Segment> {
-        self.entries.iter().find(|entry| entry.kind == kind)
-    }
-
-    pub fn get_mut(&mut self, kind: SegmentKind) -> Option<&mut Segment> {
-        self.entries.iter_mut().find(|entry| entry.kind == kind)
-    }
-
     pub fn read_dynamic_entries<R: Read + Seek>(
         &self,
         mut reader: R,
@@ -106,7 +99,15 @@ impl ProgramHeader {
     }
 
     pub fn finish(&mut self) {
-        self.entries.sort_unstable_by_key(|segment| segment.virtual_address);
+        self.entries.sort_unstable_by(|a, b| {
+            if a.kind == SegmentKind::ProgramHeader {
+                return Ordering::Less;
+            }
+            if b.kind == SegmentKind::ProgramHeader {
+                return Ordering::Greater;
+            }
+            a.virtual_address.cmp(&b.virtual_address)
+        });
     }
 
     fn validate_sorted(&self) -> Result<(), Error> {

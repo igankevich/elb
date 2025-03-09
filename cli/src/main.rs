@@ -1,5 +1,6 @@
 use clap::Parser;
 use std::ffi::CStr;
+use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -172,13 +173,27 @@ fn check(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
 }
 
 fn patch(
-    file: PathBuf,
+    path: PathBuf,
     set_interpreter: Option<PathBuf>,
     remove_interpreter: bool,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
-    let mut file = OpenOptions::new().read(true).write(true).open(&file)?;
-    let mut elf = Elf::read(&mut file)?;
+    let mut elf = Elf::read(File::open(&path)?)?;
     let mut changed = false;
+    let file_name = path.file_name().expect("File name exists");
+    let new_file_name = {
+        let mut name = OsString::new();
+        name.push(".");
+        name.push(file_name);
+        name.push(".tmp");
+        name
+    };
+    let new_path = match path.parent() {
+        Some(parent) => parent.join(&new_file_name),
+        None => new_file_name.into(),
+    };
+    let _ = std::fs::remove_file(&new_path);
+    fs_err::copy(&path, &new_path)?;
+    let mut file = OpenOptions::new().read(true).write(true).open(&new_path)?;
     if remove_interpreter {
         elf.remove_interpreter(&mut file)?;
         changed = true;
@@ -194,6 +209,7 @@ fn patch(
         return Err("No option selected".into());
     }
     elf.write(&mut file)?;
+    fs_err::rename(&new_path, &path)?;
     Ok(ExitCode::SUCCESS)
 }
 
