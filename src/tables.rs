@@ -27,7 +27,7 @@ define_specific_enum! {
     (Null, 0),
     (Loadable, 1),
     (Dynamic, 2),
-    (Interpretator, 3),
+    (Interpreter, 3),
     (Note, 4),
     (Shlib, 5),
     (ProgramHeader, 6),

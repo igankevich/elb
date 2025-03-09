@@ -1,4 +1,6 @@
 use clap::Parser;
+use std::ffi::CStr;
+use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -8,6 +10,7 @@ use elfie::SectionKind;
 use elfie::SegmentFlags;
 use elfie::SegmentKind;
 use fs_err::File;
+use fs_err::OpenOptions;
 
 #[derive(clap::Parser)]
 #[clap(version)]
@@ -30,6 +33,20 @@ enum Command {
         #[clap(value_name = "ELF file")]
         file: PathBuf,
     },
+    /// Modify ELF file.
+    Patch {
+        /// Set interpreter.
+        #[clap(short = 'i', long = "set-interpreter", value_name = "file")]
+        set_interpreter: Option<PathBuf>,
+
+        /// Remove interpreter.
+        #[clap(action, long = "remove-interpreter", value_name = "file")]
+        remove_interpreter: bool,
+
+        /// ELF file.
+        #[clap(value_name = "ELF file")]
+        file: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -40,15 +57,21 @@ fn main() -> ExitCode {
 
 fn do_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
     let args = Args::parse();
+    env_logger::init();
     match args.command {
         Command::Show { file } => show(file),
         Command::Check { file } => check(file),
+        Command::Patch {
+            set_interpreter,
+            remove_interpreter,
+            file,
+        } => patch(file, set_interpreter, remove_interpreter),
     }
 }
 
 fn show(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
     let mut file = File::open(&file)?;
-    let elf = Elf::read(&mut file)?;
+    let elf = Elf::read_unchecked(&mut file)?;
     println!("Elf:");
     println!("  Class: {:?}", elf.header.class);
     println!("  Byte order: {:?}", elf.header.byte_order);
@@ -88,7 +111,7 @@ fn show(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
         let memory_end = memory_start + section.size;
         let file_start = section.offset;
         let file_end = file_start + section.size;
-        let name_bytes = names.get(section.name as usize..).unwrap_or(&[]);
+        let name_bytes = names.get(section.name_offset as usize..).unwrap_or(&[]);
         let name_end = name_bytes.iter().position(|ch| *ch == 0);
         let name = String::from_utf8_lossy(&name_bytes[..name_end.unwrap_or(0)]);
         println!(
@@ -144,8 +167,33 @@ fn show(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
 
 fn check(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
     let mut file = File::open(&file)?;
-    let elf = Elf::read(&mut file)?;
-    elf.validate()?;
+    let _elf = Elf::read(&mut file)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn patch(
+    file: PathBuf,
+    set_interpreter: Option<PathBuf>,
+    remove_interpreter: bool,
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let mut file = OpenOptions::new().read(true).write(true).open(&file)?;
+    let mut elf = Elf::read(&mut file)?;
+    let mut changed = false;
+    if remove_interpreter {
+        elf.remove_interpreter(&mut file)?;
+        changed = true;
+    } else if let Some(path) = set_interpreter {
+        let os_string = path.into_os_string();
+        let mut bytes = os_string.into_vec();
+        bytes.push(0_u8);
+        let c_str = CStr::from_bytes_with_nul(&bytes)?;
+        elf.set_interpreter(&mut file, c_str)?;
+        changed = true;
+    }
+    if !changed {
+        return Err("No option selected".into());
+    }
+    elf.write(&mut file)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -198,7 +246,7 @@ impl std::fmt::Display for SegmentKindStr {
             Null => Some("NULL"),
             Loadable => Some("LOAD"),
             Dynamic => Some("DYNAMIC"),
-            Interpretator => Some("INTERP"),
+            Interpreter => Some("INTERP"),
             Note => Some("NOTE"),
             Shlib => Some("SHLIB"),
             ProgramHeader => Some("PHDR"),

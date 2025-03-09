@@ -1,3 +1,5 @@
+use std::ffi::CStr;
+
 pub const MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
 pub const VERSION: u8 = 1;
 
@@ -15,3 +17,6 @@ pub const MAX_SECTION_LEN: usize = SECTION_LEN_64;
 
 // TODO max align is higher
 pub const MAX_ALIGN: usize = 4096;
+
+pub const INTERP_SECTION: &CStr = c".interp";
+pub const SHSTRTAB_SECTION: &CStr = c".shstrtab";

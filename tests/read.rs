@@ -15,7 +15,7 @@ fn read_elf_files_from_file_system() {
     for var_name in DEFAULT_ENV_VARS {
         append_paths_from_env(var_name, &mut paths);
     }
-    paths.sort();
+    paths.sort_unstable();
     paths.dedup();
     for dir in paths.iter() {
         if !dir.exists() || !dir.is_dir() {
@@ -33,7 +33,7 @@ fn read_elf_files_from_file_system() {
                 continue;
             };
             eprintln!("Reading {:?}", path);
-            let elf = match Elf::read(&mut file) {
+            let elf = match Elf::read_unchecked(&mut file) {
                 Ok(elf) => elf,
                 Err(Error::NotElf) => continue,
                 Err(e) => {

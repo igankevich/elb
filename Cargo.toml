@@ -8,6 +8,7 @@ license.workspace = true
 arbitrary = { version = "1.4.1", features = ["derive"] }
 arbtest = "0.3.2"
 bitflags = "2.9.0"
+log = "0.4.26"
 thiserror = "2.0.12"
 
 [dev-dependencies]

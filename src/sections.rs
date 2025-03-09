@@ -62,6 +62,26 @@ impl SectionHeader {
         }
         Ok(())
     }
+
+    pub fn finish(&mut self) {
+        self.entries.sort_unstable_by_key(|section| section.virtual_address);
+    }
+
+    pub(crate) fn free<W: Write + Seek>(&mut self, writer: W, i: usize) -> Result<Section, Error> {
+        let section = self.entries.remove(i);
+        log::trace!(
+            "Freeing file block {:#x}..{:#x}",
+            section.offset,
+            section.offset + section.size
+        );
+        log::trace!(
+            "Freeing memory block {:#x}..{:#x}",
+            section.virtual_address,
+            section.virtual_address + section.size
+        );
+        section.clear_content(writer)?;
+        Ok(section)
+    }
 }
 
 impl Deref for SectionHeader {
@@ -80,7 +100,7 @@ impl DerefMut for SectionHeader {
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Section {
-    pub name: u32,
+    pub name_offset: u32,
     pub kind: SectionKind,
     pub flags: SectionFlags,
     pub virtual_address: u64,
@@ -104,7 +124,7 @@ impl Section {
         reader.read_exact(&mut buf[..entry_len as usize])?;
         let word_len = class.word_len();
         let slice = &buf[..];
-        let name = get_u32(slice, byte_order);
+        let name_offset = get_u32(slice, byte_order);
         let slice = &slice[4..];
         let kind: SectionKind = get_u32(slice, byte_order).try_into()?;
         let slice = &slice[4..];
@@ -124,7 +144,7 @@ impl Section {
         let slice = &slice[word_len..];
         let entry_len = get_word(class, byte_order, slice);
         Ok(Self {
-            name,
+            name_offset,
             kind,
             flags: SectionFlags::from_bits_retain(flags),
             virtual_address,
@@ -146,7 +166,7 @@ impl Section {
     ) -> Result<(), Error> {
         assert_eq!(class.section_len(), entry_len);
         let mut buf = Vec::with_capacity(entry_len as usize);
-        write_u32(&mut buf, byte_order, self.name)?;
+        write_u32(&mut buf, byte_order, self.name_offset)?;
         write_u32(&mut buf, byte_order, self.kind.as_u32())?;
         write_word(&mut buf, class, byte_order, self.flags.bits())?;
         write_word(&mut buf, class, byte_order, self.virtual_address)?;
@@ -169,6 +189,12 @@ impl Section {
         let mut buf = vec![0_u8; n];
         reader.read_exact(&mut buf[..])?;
         Ok(buf)
+    }
+
+    pub fn write_out<W: Write + Seek>(&self, mut writer: W, content: &[u8]) -> Result<(), Error> {
+        writer.seek(SeekFrom::Start(self.offset))?;
+        writer.write_all(content)?;
+        Ok(())
     }
 
     pub fn write_content<W: Write + Seek>(
@@ -348,7 +374,7 @@ mod tests {
     impl Section {
         pub fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
             Ok(Self {
-                name: u.arbitrary()?,
+                name_offset: u.arbitrary()?,
                 kind: u.arbitrary()?,
                 flags: SectionFlags::from_bits_retain(class.arbitrary_word(u)?),
                 virtual_address: class.arbitrary_word(u)?,

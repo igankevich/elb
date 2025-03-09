@@ -1,3 +1,4 @@
+mod alloc;
 mod byte_order;
 mod class;
 pub(crate) mod constants;
@@ -7,12 +8,13 @@ mod error;
 mod header;
 pub(crate) mod io;
 mod macros;
+pub(crate) mod other;
 mod sections;
 mod segments;
 mod tables;
 pub(crate) mod validation;
-pub(crate) mod other;
 
+pub use self::alloc::*;
 pub use self::byte_order::*;
 pub use self::class::*;
 pub use self::dynamic_table::*;

@@ -105,6 +105,10 @@ impl ProgramHeader {
         Ok(())
     }
 
+    pub fn finish(&mut self) {
+        self.entries.sort_unstable_by_key(|segment| segment.virtual_address);
+    }
+
     fn validate_sorted(&self) -> Result<(), Error> {
         let mut prev: Option<&Segment> = None;
         for segment in self.entries.iter() {
@@ -216,6 +220,12 @@ impl ProgramHeader {
         }
         Ok(())
     }
+
+    pub(crate) fn free<W: Write + Seek>(&mut self, writer: W, i: usize) -> Result<Segment, Error> {
+        let segment = self.entries.remove(i);
+        segment.clear_content(writer)?;
+        Ok(segment)
+    }
 }
 
 impl Deref for ProgramHeader {
@@ -326,6 +336,12 @@ impl Segment {
         Ok(buf)
     }
 
+    pub fn write_out<W: Write + Seek>(&self, mut writer: W, content: &[u8]) -> Result<(), Error> {
+        writer.seek(SeekFrom::Start(self.offset))?;
+        writer.write_all(content)?;
+        Ok(())
+    }
+
     pub fn write_content<W: Write + Seek>(
         &mut self,
         writer: W,
@@ -362,6 +378,11 @@ impl Segment {
         self.memory_size = new_memory_size;
         self.file_size = file_size;
         Ok(())
+    }
+
+    /// Zero out the entry's content.
+    pub fn clear_content<W: Write + Seek>(&self, writer: W) -> Result<(), Error> {
+        zero(writer, self.offset, self.file_size)
     }
 
     pub fn move_to_end<F: Read + Write + Seek>(

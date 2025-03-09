@@ -49,6 +49,10 @@ pub enum Error {
     TooBig(&'static str),
     #[error("Overlap: {0}")]
     Overlap(&'static str),
+    #[error("Failed to allocate file block")]
+    FileBlockAlloc,
+    #[error("Failed to allocate memory block")]
+    MemoryBlockAlloc,
     #[error("Input/output error: {0}")]
     Io(#[from] std::io::Error),
 }
