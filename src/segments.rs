@@ -5,6 +5,7 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::ops::Range;
 
 use crate::constants::*;
 use crate::io::*;
@@ -227,6 +228,40 @@ impl ProgramHeader {
         segment.clear_content(writer)?;
         Ok(segment)
     }
+
+    pub(crate) fn add(&mut self, segment: Segment) -> usize {
+        log::trace!(
+            "Adding segment {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}",
+            segment.kind,
+            segment.offset,
+            segment.offset + segment.file_size,
+            segment.virtual_address,
+            segment.virtual_address + segment.memory_size
+        );
+        // Append null segments.
+        if segment.kind == SegmentKind::Null {
+            let i = self.entries.len();
+            self.entries.push(segment);
+            return i;
+        }
+        let spare_index = self
+            .entries
+            .iter()
+            .position(|segment| segment.kind == SegmentKind::Null);
+        match spare_index {
+            Some(i) => {
+                // Replace null segment with the new one.
+                self.entries[i] = segment;
+                i
+            }
+            None => {
+                // No null segments found. Append the new one.
+                let i = self.entries.len();
+                self.entries.push(segment);
+                i
+            }
+        }
+    }
 }
 
 impl Deref for ProgramHeader {
@@ -338,46 +373,9 @@ impl Segment {
     }
 
     pub fn write_out<W: Write + Seek>(&self, mut writer: W, content: &[u8]) -> Result<(), Error> {
+        assert_eq!(self.file_size, content.len() as u64);
         writer.seek(SeekFrom::Start(self.offset))?;
         writer.write_all(content)?;
-        Ok(())
-    }
-
-    pub fn write_content<W: Write + Seek>(
-        &mut self,
-        writer: W,
-        class: Class,
-        content: &[u8],
-        no_overwrite: bool,
-    ) -> Result<(), Error> {
-        let (offset, file_size) = store(
-            writer,
-            class,
-            self.offset,
-            self.file_size,
-            self.align.max(MAX_ALIGN as u64),
-            content,
-            no_overwrite,
-        )?;
-        self.offset = offset;
-        let old_file_size = self.file_size;
-        let new_file_size = file_size;
-        let old_memory_size = self.memory_size;
-        let new_memory_size = if old_file_size > new_file_size {
-            old_memory_size - (old_file_size - new_file_size)
-        } else {
-            old_memory_size + (old_file_size - new_file_size)
-        };
-        eprintln!(
-            "Old size -> new size: {:?} -> {:?}",
-            self.memory_size, new_memory_size
-        );
-        eprintln!(
-            "Old file size -> new file size: {:?} -> {:?}",
-            self.file_size, file_size
-        );
-        self.memory_size = new_memory_size;
-        self.file_size = file_size;
         Ok(())
     }
 
@@ -386,15 +384,10 @@ impl Segment {
         zero(writer, self.offset, self.file_size)
     }
 
-    pub fn move_to_end<F: Read + Write + Seek>(
-        &mut self,
-        mut file: F,
-        class: Class,
-    ) -> Result<&mut Self, Error> {
-        let content = self.read_content(&mut file)?;
-        let no_overwrite = true;
-        self.write_content(&mut file, class, &content, no_overwrite)?;
-        Ok(self)
+    pub const fn address_range(&self) -> Range<u64> {
+        let start = self.virtual_address;
+        let end = start + self.memory_size;
+        start..end
     }
 
     pub fn contains_virtual_address(&self, addr: u64) -> bool {

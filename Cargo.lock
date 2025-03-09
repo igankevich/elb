@@ -172,6 +172,7 @@ dependencies = [
  "elfie",
  "env_logger",
  "fs-err",
+ "log",
 ]
 
 [[package]]

@@ -15,8 +15,15 @@ pub const SECTION_LEN_32: usize = 40;
 pub const SECTION_LEN_64: usize = 64;
 pub const MAX_SECTION_LEN: usize = SECTION_LEN_64;
 
-// TODO max align is higher
-pub const MAX_ALIGN: usize = 4096;
+pub const PAGE_SIZE: usize = 4096;
 
 pub const INTERP_SECTION: &CStr = c".interp";
 pub const SHSTRTAB_SECTION: &CStr = c".shstrtab";
+pub const DYNSTR_SECTION: &CStr = c".dynstr";
+pub const DYNAMIC_SECTION: &CStr = c".dynamic";
+
+pub const DYNAMIC_ALIGN: u64 = 8;
+#[allow(unused)]
+pub const PHDR_ALIGN: u64 = 8;
+#[allow(unused)]
+pub const SECTION_HEADER_ALIGN: u64 = 8;

@@ -1,3 +1,5 @@
+use crate::constants::*;
+
 pub struct Allocations {
     allocations: Vec<(u64, Alloc)>,
 }
@@ -29,7 +31,7 @@ impl Allocations {
         self.allocations.sort_unstable_by_key(|x| x.0);
     }
 
-    pub fn alloc_file_block(&self, size: u64) -> Option<u64> {
+    pub fn alloc_file_block(&self, size: u64, memory_offset: u64) -> Option<u64> {
         let mut counter = 0;
         let mut start = None;
         for i in 0..self.allocations.len() {
@@ -45,8 +47,19 @@ impl Allocations {
             } else {
                 if let Some(start) = start {
                     if offset - start >= size {
-                        log::trace!("Allocating file block {:#x}..{:#x}", start, start + size);
-                        return Some(*start);
+                        let padding = calc_padding(*start, memory_offset, PAGE_SIZE as u64)?;
+                        let padded_size = padding.checked_add(size)?;
+                        if offset - start >= padded_size {
+                            let start = start.checked_add(padding)?;
+                            log::trace!(
+                                "Allocating file block {:#x}..{:#x}, padding {}, align {}",
+                                start,
+                                start + size,
+                                padding,
+                                PAGE_SIZE,
+                            );
+                            return Some(start);
+                        }
                     }
                 }
                 start = None;
@@ -55,7 +68,8 @@ impl Allocations {
         None
     }
 
-    pub fn alloc_memory_block(&self, size: u64, align: u64, file_offset: u64) -> Option<u64> {
+    pub fn alloc_memory_block(&self, size: u64, align: u64) -> Option<u64> {
+        let align = align.max(1);
         let mut counter = 0;
         let mut start = None;
         for i in 0..self.allocations.len() {
@@ -70,20 +84,19 @@ impl Allocations {
                 }
             } else {
                 if let Some(start) = start {
-                    if offset - start >= size {
-                        let padding = calc_padding(*start, file_offset, align)?;
-                        let padded_size = padding.checked_add(size)?;
-                        if offset - start >= padded_size {
-                            let start = start.checked_add(padding)?;
-                            log::trace!(
-                                "Allocating memory block {:#x}..{:#x}, padding {}, align {}",
-                                start,
-                                start + size,
-                                padding,
-                                align,
-                            );
-                            return Some(start);
-                        }
+                    let rem = start % align;
+                    let padding = if rem != 0 { align - rem } else { 0 };
+                    let padded_size = padding.checked_add(size)?;
+                    if offset - start >= padded_size {
+                        let start = start.checked_add(padding)?;
+                        log::trace!(
+                            "Allocating memory block {:#x}..{:#x}, padding {}, align {}",
+                            start,
+                            start + size,
+                            padding,
+                            align,
+                        );
+                        return Some(start);
                     }
                 }
                 start = None;
@@ -98,20 +111,20 @@ enum Alloc {
     End,
 }
 
-fn calc_padding(memory_offset: u64, file_offset: u64, align: u64) -> Option<u64> {
+fn calc_padding(offset1: u64, offset2: u64, align: u64) -> Option<u64> {
     if align <= 1 {
         return Some(0);
     }
-    let rem1 = memory_offset % align;
-    let rem2 = file_offset % align;
+    let rem1 = offset1 % align;
+    let rem2 = offset2 % align;
     if rem1 != rem2 {
         if rem1 < rem2 {
             let padding = rem2 - rem1;
-            memory_offset.checked_add(padding)?;
+            offset1.checked_add(padding)?;
             Some(padding)
         } else {
             let padding = (align - rem1).checked_add(rem2)?;
-            memory_offset.checked_add(padding)?;
+            offset1.checked_add(padding)?;
             Some(padding)
         }
     } else {

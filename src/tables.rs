@@ -83,7 +83,7 @@ define_specific_enum! {
     (FiniArray, 26),
     (InitArraySize, 27),
     (FiniArraySize, 28),
-    (RunPath, 29),
+    (RunPathOffset, 29),
     (Flags, 30),
     (PreInitArray, 32),
     (PreInitArraySize, 33),
@@ -92,6 +92,7 @@ define_specific_enum! {
     (RelrTableAddress, 36),
     (RelrEntrySize, 37),
     Range(OsSpecific(0x6000000d, 0x6ffff000)),
+    Range(Other(0x6ffff001, 0x6fffffff)),
     Range(ProcSpecific(0x70000000, 0x7fffffff)),
 }
 

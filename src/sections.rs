@@ -78,6 +78,32 @@ impl SectionHeader {
         section.clear_content(writer)?;
         Ok(section)
     }
+
+    pub(crate) fn add(&mut self, section: Section) -> usize {
+        // Append null sections.
+        if section.kind == SectionKind::Null {
+            let i = self.entries.len();
+            self.entries.push(section);
+            return i;
+        }
+        let spare_index = self
+            .entries
+            .iter()
+            .position(|section| section.kind == SectionKind::Null);
+        match spare_index {
+            Some(i) => {
+                // Replace null section with the new one.
+                self.entries[i] = section;
+                i
+            }
+            None => {
+                // No null sections found. Append the new one.
+                let i = self.entries.len();
+                self.entries.push(section);
+                i
+            }
+        }
+    }
 }
 
 impl Deref for SectionHeader {
@@ -203,35 +229,9 @@ impl Section {
     }
 
     pub fn write_out<W: Write + Seek>(&self, mut writer: W, content: &[u8]) -> Result<(), Error> {
+        assert_eq!(self.size, content.len() as u64);
         writer.seek(SeekFrom::Start(self.offset))?;
         writer.write_all(content)?;
-        Ok(())
-    }
-
-    pub fn write_content<W: Write + Seek>(
-        &mut self,
-        writer: W,
-        class: Class,
-        content: &[u8],
-        no_overwrite: bool,
-    ) -> Result<(), Error> {
-        let (offset, size) = store(
-            writer,
-            class,
-            self.offset,
-            self.size,
-            self.align,
-            content,
-            no_overwrite,
-        )?;
-        eprintln!(
-            "Old offset -> new offset: {:?} -> {:?}",
-            self.offset, offset
-        );
-        eprintln!("Old size -> new size: {:?} -> {:?}", self.size, size);
-        eprintln!("Old {:#?}", self);
-        self.offset = offset;
-        self.size = size;
         Ok(())
     }
 
