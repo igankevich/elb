@@ -17,6 +17,7 @@ use crate::SectionKind;
 use crate::Segment;
 use crate::SegmentFlags;
 use crate::SegmentKind;
+use crate::StringTable;
 
 #[derive(Debug)]
 pub struct Elf {
@@ -123,12 +124,12 @@ impl Elf {
     pub fn read_section_names<F: Read + Write + Seek>(
         &mut self,
         mut file: F,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<StringTable, Error> {
         let section = self.sections.get(self.header.section_names_index as usize);
         if let Some(section) = section {
-            section.read_content(&mut file)
+            Ok(section.read_content(&mut file)?.into())
         } else {
-            Ok(Vec::new())
+            Ok(Default::default())
         }
     }
 
@@ -139,8 +140,8 @@ impl Elf {
             if section.kind != SectionKind::ProgramData {
                 return false;
             }
-            let c_str_bytes = names.get(section.name_offset as usize..).unwrap_or(&[]);
-            Ok(INTERP_SECTION) == CStr::from_bytes_until_nul(c_str_bytes)
+            let string = names.get_string(section.name_offset as usize);
+            Some(INTERP_SECTION) == string
         });
         if let Some(i) = interpreter_section_index {
             self.free_section(&mut file, i, &names)?;
@@ -215,7 +216,7 @@ impl Elf {
         };
         let names = self.read_section_names(&mut file)?;
         let result2 = match self.sections.iter().position(|section| {
-            Some(DYNAMIC_SECTION) == get_name(&names, section.name_offset as usize)
+            Some(DYNAMIC_SECTION) == names.get_string(section.name_offset as usize)
         }) {
             Some(i) => {
                 if result1.is_none() {
@@ -277,7 +278,7 @@ impl Elf {
         use DynamicEntryKind::*;
         let mut names = self.read_section_names(&mut file)?;
         let dynamic_table_bytes = match self.sections.iter().position(|section| {
-            Some(DYNAMIC_SECTION) == get_name(&names, section.name_offset as usize)
+            Some(DYNAMIC_SECTION) == names.get_string(section.name_offset as usize)
         }) {
             Some(i) => {
                 let bytes = self.sections[i].read_content(&mut file)?;
@@ -306,16 +307,16 @@ impl Elf {
                 // Try to find the string table by section name.
                 self.sections.iter().position(|section| {
                     section.kind == SectionKind::StringTable
-                        && Some(DYNSTR_SECTION) == get_name(&names, section.name_offset as usize)
+                        && Some(DYNSTR_SECTION) == names.get_string(section.name_offset as usize)
                 })
             }
         };
         let (mut dynstr_table, dynstr_table_index) = match dynstr_table_index {
             Some(i) => {
                 let bytes = self.sections[i].read_content(&mut file)?;
-                (bytes, Some(i))
+                (StringTable::from(bytes), Some(i))
             }
-            None => (Vec::new(), None),
+            None => (Default::default(), None),
         };
         let (value_offset, dynstr_table_index) = self.get_string_offset(
             &mut file,
@@ -382,7 +383,7 @@ impl Elf {
         // We don't write section here since the content and the location is the same as in the
         // `.dynamic`. segment.
         self.sections.retain(|section| {
-            Some(DYNAMIC_SECTION) != get_name(&names, section.name_offset as usize)
+            Some(DYNAMIC_SECTION) != names.get_string(section.name_offset as usize)
         });
         let name_offset = self.get_name_offset(&mut file, DYNAMIC_SECTION, &mut names)?;
         let segment = &self.segments[dynamic_segment_index];
@@ -414,36 +415,30 @@ impl Elf {
         &mut self,
         mut file: F,
         name: &CStr,
-        names: &mut Vec<u8>,
+        names: &mut StringTable,
     ) -> Result<usize, Error> {
-        let name_offset = match find_name(&names, name.to_bytes_with_nul()) {
+        let name_offset = match names.get_offset(name) {
             Some(name_offset) => {
                 log::trace!("Found section name {:?} at offset {}", name, name_offset);
                 name_offset
             }
             None => {
                 self.free_section(&mut file, self.header.section_names_index as usize, &names)?;
-                if names.is_empty() {
-                    // String tables always start with NUL byte.
-                    names.push(0);
-                }
-                let outer_name_offset = names.len();
+                let outer_name_offset = names.insert(name);
                 log::trace!(
                     "Adding section name {:?} at offset {}",
                     name,
                     outer_name_offset
                 );
-                names.extend_from_slice(name.to_bytes_with_nul());
-                let name_offset = match find_name(&names, SHSTRTAB_SECTION.to_bytes_with_nul()) {
+                let name_offset = match names.get_offset(SHSTRTAB_SECTION) {
                     Some(name_offset) => name_offset,
                     None => {
-                        let offset = names.len();
+                        let offset = names.insert(SHSTRTAB_SECTION);
                         log::trace!(
                             "Adding section name {:?} at offset {}",
                             SHSTRTAB_SECTION,
                             offset
                         );
-                        names.extend_from_slice(SHSTRTAB_SECTION.to_bytes_with_nul());
                         offset
                     }
                 };
@@ -464,7 +459,7 @@ impl Elf {
                     },
                     &names,
                 )?;
-                self.sections[i].write_out(&mut file, &names)?;
+                self.sections[i].write_out(&mut file, names.as_ref())?;
                 self.header.section_names_index = i
                     .try_into()
                     .map_err(|_| Error::TooBig("Section names index"))?;
@@ -480,61 +475,55 @@ impl Elf {
         string: &CStr,
         table_section_index: Option<usize>,
         table_name: &CStr,
-        table: &mut Vec<u8>,
-        names: &mut Vec<u8>,
+        table: &mut StringTable,
+        names: &mut StringTable,
     ) -> Result<(usize, usize), Error> {
-        let (string_offset, table_section_index) =
-            match find_name(&table, string.to_bytes_with_nul()) {
-                Some(string_offset) => {
-                    log::trace!(
-                        "Found string {:?} in {:?} at offset {}",
-                        string,
-                        table_name,
-                        string_offset
-                    );
-                    (string_offset, table_section_index.expect("Should be set"))
+        let (string_offset, table_section_index) = match table.get_offset(string) {
+            Some(string_offset) => {
+                log::trace!(
+                    "Found string {:?} in {:?} at offset {}",
+                    string,
+                    table_name,
+                    string_offset
+                );
+                (string_offset, table_section_index.expect("Should be set"))
+            }
+            None => {
+                if let Some(table_section_index) = table_section_index {
+                    self.free_section(&mut file, table_section_index, &names)?;
                 }
-                None => {
-                    if let Some(table_section_index) = table_section_index {
-                        self.free_section(&mut file, table_section_index, &names)?;
-                    }
-                    if table.is_empty() {
-                        // String tables always start with NUL byte.
-                        table.push(0);
-                    }
-                    let outer_string_offset = table.len();
-                    log::trace!(
-                        "Adding string {:?} to {:?} at offset {}",
-                        string,
-                        table_name,
-                        outer_string_offset
-                    );
-                    table.extend_from_slice(string.to_bytes_with_nul());
-                    let name_offset = self.get_name_offset(&mut file, table_name, names)?;
-                    let i = self.alloc_section(
-                        Section {
-                            name_offset: name_offset
-                                .try_into()
-                                .map_err(|_| Error::TooBig("Section name"))?,
-                            kind: SectionKind::StringTable,
-                            flags: SectionFlags::ALLOC,
-                            virtual_address: 0,
-                            offset: 0,
-                            size: table.len() as u64,
-                            link: 0,
-                            info: 0,
-                            align: 1,
-                            entry_len: 0,
-                        },
-                        &names,
-                    )?;
-                    self.sections[i].write_out(&mut file, &table)?;
-                    self.header.section_names_index = i
-                        .try_into()
-                        .map_err(|_| Error::TooBig("Section names index"))?;
-                    (outer_string_offset, i)
-                }
-            };
+                let outer_string_offset = table.insert(string);
+                log::trace!(
+                    "Adding string {:?} to {:?} at offset {}",
+                    string,
+                    table_name,
+                    outer_string_offset
+                );
+                let name_offset = self.get_name_offset(&mut file, table_name, names)?;
+                let i = self.alloc_section(
+                    Section {
+                        name_offset: name_offset
+                            .try_into()
+                            .map_err(|_| Error::TooBig("Section name"))?,
+                        kind: SectionKind::StringTable,
+                        flags: SectionFlags::ALLOC,
+                        virtual_address: 0,
+                        offset: 0,
+                        size: table.len() as u64,
+                        link: 0,
+                        info: 0,
+                        align: 1,
+                        entry_len: 0,
+                    },
+                    &names,
+                )?;
+                self.sections[i].write_out(&mut file, table.as_ref())?;
+                self.header.section_names_index = i
+                    .try_into()
+                    .map_err(|_| Error::TooBig("Section names index"))?;
+                (outer_string_offset, i)
+            }
+        };
         Ok((string_offset, table_section_index))
     }
 
@@ -611,11 +600,10 @@ impl Elf {
         &mut self,
         mut writer: W,
         i: usize,
-        names: &[u8],
+        names: &StringTable,
     ) -> Result<Section, Error> {
         let section = self.sections.free(&mut writer, i)?;
-        let c_str_bytes = names.get(section.name_offset as usize..).unwrap_or(&[]);
-        let name = CStr::from_bytes_until_nul(c_str_bytes).unwrap_or_default();
+        let name = names.get_string(section.name_offset as usize).unwrap_or_default();
         log::trace!(
             "Removing section {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}",
             name,
@@ -660,7 +648,7 @@ impl Elf {
                         && segment_address_range.contains(&section.virtual_address)
                     {
                         log::trace!("Splitting off section {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}", 
-                            get_name(names, section.name_offset as usize).unwrap_or_default(),
+                            names.get_string(section.name_offset as usize).unwrap_or_default(),
                             section.offset,
                             section.offset + section.size,
                             section.virtual_address,
@@ -684,7 +672,7 @@ impl Elf {
         Ok(section)
     }
 
-    fn alloc_section(&mut self, mut section: Section, names: &[u8]) -> Result<usize, Error> {
+    fn alloc_section(&mut self, mut section: Section, names: &StringTable) -> Result<usize, Error> {
         section.virtual_address = self
             .alloc_memory_block(section.size, section.align)
             .ok_or(Error::MemoryBlockAlloc)?;
@@ -693,7 +681,9 @@ impl Elf {
             .ok_or(Error::FileBlockAlloc)?;
         log::trace!(
             "Adding section {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}",
-            get_name(names, section.name_offset as usize).unwrap_or_default(),
+            names
+                .get_string(section.name_offset as usize)
+                .unwrap_or_default(),
             section.offset,
             section.offset + section.size,
             section.virtual_address,
@@ -769,54 +759,5 @@ impl Elf {
         }));
         allocations.finish();
         allocations.alloc_memory_block(size, align)
-    }
-}
-
-fn find_name(names: &[u8], name: &[u8]) -> Option<usize> {
-    if name.is_empty() {
-        return Some(0);
-    }
-    if names.is_empty() {
-        return None;
-    }
-    let mut j = 0;
-    let n = name.len();
-    for i in 0..names.len() {
-        if names[i] == name[j] {
-            j += 1;
-            if j == n {
-                return Some(i + 1 - n);
-            }
-        } else {
-            j = 0;
-        }
-    }
-    None
-}
-
-fn get_name(names: &[u8], offset: usize) -> Option<&CStr> {
-    let Some(c_str_bytes) = names.get(offset..) else {
-        return None;
-    };
-    CStr::from_bytes_until_nul(c_str_bytes).ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Segment;
-    use crate::SegmentFlags;
-    use crate::SegmentKind;
-    use arbtest::arbtest;
-    use std::fs::OpenOptions;
-
-    #[test]
-    fn test_find_name() {
-        assert_eq!(Some(0), find_name(b"hello\0", b"hello\0"));
-        assert_eq!(Some(1), find_name(b"\0hello\0", b"hello\0"));
-        assert_eq!(Some(7), find_name(b"\0first\0hello\0", b"hello\0"));
-        assert_eq!(None, find_name(b"", b"hello\0"));
-        assert_eq!(Some(0), find_name(b"", b""));
-        assert_eq!(Some(0), find_name(b"123", b""));
     }
 }

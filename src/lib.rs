@@ -11,6 +11,7 @@ mod macros;
 pub(crate) mod other;
 mod sections;
 mod segments;
+mod string_table;
 mod tables;
 pub(crate) mod validation;
 
@@ -24,4 +25,5 @@ pub use self::header::*;
 pub(crate) use self::macros::*;
 pub use self::sections::*;
 pub use self::segments::*;
+pub use self::string_table::*;
 pub use self::tables::*;
