@@ -1,8 +1,11 @@
 use clap::Parser;
 use clap::ValueEnum;
+use colored::Colorize;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::OsString;
+use std::io::Read;
+use std::io::Seek;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -32,6 +35,10 @@ struct Args {
 enum Command {
     /// Show file contents.
     Show {
+        /// What to show?
+        #[clap(short = 't', default_value = "all")]
+        what: What,
+
         /// ELF file.
         #[clap(value_name = "ELF file")]
         file: PathBuf,
@@ -70,68 +77,106 @@ struct PatchArgs {
 }
 
 fn main() -> ExitCode {
-    do_main()
-        .inspect_err(|e| eprintln!("{e}"))
-        .unwrap_or(ExitCode::FAILURE)
+    match do_main() {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
-fn do_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
+fn do_main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     Logger::init(args.verbose)?;
     match args.command {
-        Command::Show { file } => show(file),
+        Command::Show { what, file } => show(what, file),
         Command::Check { file } => check(file),
         Command::Patch(patch_args) => patch(patch_args),
     }
 }
 
-fn show(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
+fn show(what: What, file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::open(&file)?;
     let elf = Elf::read_unchecked(&mut file)?;
-    println!("Elf:");
-    println!("  Class: {:?}", elf.header.class);
-    println!("  Byte order: {:?}", elf.header.byte_order);
-    println!("  OS ABI: {:?}", elf.header.os_abi);
-    println!("  ABI version: {:?}", elf.header.abi_version);
-    println!("  File type: {:?}", elf.header.kind);
-    println!("  Machine: {:?}", elf.header.machine);
-    println!("  Flags: {:#x}", elf.header.flags);
-    println!("  Entry point: {:#x}", elf.header.entry_point);
-    println!(
-        "  Program header: {:#x}..{:#x}",
-        elf.header.program_header_offset,
-        elf.header.program_header_offset
-            + elf.header.num_segments as u64 * elf.header.segment_len as u64,
-    );
-    println!(
-        "  Section header: {:#x}..{:#x}",
-        elf.header.section_header_offset,
-        elf.header.section_header_offset
-            + elf.header.num_sections as u64 * elf.header.section_len as u64,
-    );
-    println!("\nSections:");
-    if !elf.sections.is_empty() {
-        println!(
-            "  {:20}  {:38}  {:38}  Flags      Type",
-            "Name", "File block", "Memory block"
-        );
+    match what {
+        What::Header => {
+            let mut printer = Printer::new(false);
+            show_header(&elf, &mut printer);
+        }
+        What::Sections => {
+            let mut printer = Printer::new(false);
+            show_sections(&elf, &mut file, &mut printer)?;
+        }
+        What::Segments => {
+            let mut printer = Printer::new(false);
+            show_segments(&elf, &mut printer)?;
+        }
+        What::All => {
+            let mut printer = Printer::new(true);
+            printer.title("Header");
+            show_header(&elf, &mut printer);
+            printer.title("Sections");
+            show_sections(&elf, &mut file, &mut printer)?;
+            printer.title("Segments");
+            show_segments(&elf, &mut printer)?;
+        }
     }
-    let names_section = elf.sections.get(elf.header.section_names_index as usize);
-    let names = if let Some(names_section) = names_section {
-        names_section.read_content(&mut file)?
-    } else {
-        Vec::new()
-    };
+    Ok(())
+}
+
+fn show_header(elf: &Elf, printer: &mut Printer) {
+    printer.kv("Class", format_args!("{:?}", elf.header.class));
+    printer.kv("Byte order", format_args!("{:?}", elf.header.byte_order));
+    printer.kv("OS ABI", format_args!("{:?}", elf.header.os_abi));
+    printer.kv("ABI version", format_args!("{:?}", elf.header.abi_version));
+    printer.kv("File type", format_args!("{:?}", elf.header.kind));
+    printer.kv("Machine", format_args!("{:?}", elf.header.machine));
+    printer.kv("Flags", format_args!("{:#x}", elf.header.flags));
+    printer.kv("Entry point", format_args!("{:#x}", elf.header.entry_point));
+    printer.kv(
+        "Program header",
+        format_args!(
+            "{:#x}..{:#x}",
+            elf.header.program_header_offset,
+            elf.header.program_header_offset
+                + elf.header.num_segments as u64 * elf.header.segment_len as u64
+        ),
+    );
+    printer.kv(
+        "Section header",
+        format_args!(
+            "{:#x}..{:#x}",
+            elf.header.section_header_offset,
+            elf.header.section_header_offset
+                + elf.header.num_sections as u64 * elf.header.section_len as u64
+        ),
+    );
+}
+
+fn show_sections<R: Read + Seek>(
+    elf: &Elf,
+    mut file: R,
+    printer: &mut Printer,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !elf.sections.is_empty() {
+        printer.row(format_args!(
+            "{:20}  {:38}  {:38}  Flags      Type",
+            "Name", "File block", "Memory block"
+        ));
+    }
+    let names = elf.read_section_names(&mut file)?;
     for section in elf.sections.iter() {
         let memory_start = section.virtual_address;
         let memory_end = memory_start + section.size;
         let file_start = section.offset;
         let file_end = file_start + section.size;
-        let name_bytes = names.get(section.name_offset as usize..).unwrap_or(&[]);
-        let name_end = name_bytes.iter().position(|ch| *ch == 0);
-        let name = String::from_utf8_lossy(&name_bytes[..name_end.unwrap_or(0)]);
-        println!(
-            "  {:20}  {:#018x}..{:#018x}  {:#018x}..{:#018x}  {}  {}",
+        let name_bytes = names
+            .get_string(section.name_offset as usize)
+            .unwrap_or_default();
+        let name = String::from_utf8_lossy(name_bytes.to_bytes());
+        printer.row(format_args!(
+            "{:20}  {:#018x}..{:#018x}  {:#018x}..{:#018x}  {}  {}",
             name,
             file_start,
             file_end,
@@ -139,9 +184,9 @@ fn show(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
             memory_end,
             SectionFlagsStr(section.flags),
             SectionKindStr(section.kind)
-        );
+        ));
     }
-    println!("\nSection flags:");
+    printer.title("Section flags");
     println!("  w  Writable");
     println!("  a  Occupies memory during execution");
     println!("  x  Executable");
@@ -154,40 +199,43 @@ fn show(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
     println!("  t  Holds thread-local data");
     println!("  c  Compressed");
     println!("  *  Unknown flags");
-    println!("\nSegments:");
+    Ok(())
+}
+
+fn show_segments(elf: &Elf, printer: &mut Printer) -> Result<(), Box<dyn std::error::Error>> {
     if !elf.sections.is_empty() {
-        println!(
-            "  {:20}  {:38}  {:38}  Flags",
+        printer.row(format_args!(
+            "{:20}  {:38}  {:38}  Flags",
             "Type", "File block", "Memory block"
-        );
+        ));
     }
     for segment in elf.segments.iter() {
         let memory_start = segment.virtual_address;
         let memory_end = memory_start + segment.memory_size;
         let file_start = segment.offset;
         let file_end = file_start + segment.file_size;
-        println!(
-            "  {:20}  {:#018x}..{:#018x}  {:#018x}..{:#018x}  {}",
+        printer.row(format_args!(
+            "{:20}  {:#018x}..{:#018x}  {:#018x}..{:#018x}  {}",
             SegmentKindStr(segment.kind),
             file_start,
             file_end,
             memory_start,
             memory_end,
             SegmentFlagsStr(segment.flags),
-        );
+        ));
     }
     elf.validate()?;
     // TODO segment-to-section mapping
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
-fn check(file: PathBuf) -> Result<ExitCode, Box<dyn std::error::Error>> {
+fn check(file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::open(&file)?;
     let _elf = Elf::read(&mut file)?;
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
-fn patch(args: PatchArgs) -> Result<ExitCode, Box<dyn std::error::Error>> {
+fn patch(args: PatchArgs) -> Result<(), Box<dyn std::error::Error>> {
     let mut elf = Elf::read(File::open(&args.file)?)?;
     let mut changed = false;
     let file_name = args.file.file_name().expect("File name exists");
@@ -234,7 +282,41 @@ fn patch(args: PatchArgs) -> Result<ExitCode, Box<dyn std::error::Error>> {
     }
     elf.write(&mut file)?;
     fs_err::rename(&new_path, &args.file)?;
-    Ok(ExitCode::SUCCESS)
+    Ok(())
+}
+
+struct Printer {
+    first_title: bool,
+    indent: bool,
+}
+
+impl Printer {
+    fn new(indent: bool) -> Self {
+        Self {
+            first_title: true,
+            indent,
+        }
+    }
+
+    fn title(&mut self, title: &str) {
+        let newline = if !self.first_title {
+            "\n"
+        } else {
+            self.first_title = false;
+            ""
+        };
+        println!("{}{}", newline, title.bold().underline());
+    }
+
+    fn kv<V: std::fmt::Display>(&mut self, key: &str, value: V) {
+        let indent = if self.indent { "  " } else { "" };
+        println!("{}{}: {}", indent, key.bold().blue(), value);
+    }
+
+    fn row<V: std::fmt::Display>(&mut self, value: V) {
+        let indent = if self.indent { "  " } else { "" };
+        println!("{}{}", indent, value);
+    }
 }
 
 #[derive(clap::ValueEnum, Clone, Copy)]
@@ -251,4 +333,14 @@ impl From<DynamicEntry> for elfie::DynamicEntryKind {
             DynamicEntry::Runpath => Self::RunPathOffset,
         }
     }
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Default)]
+#[clap(rename_all = "snake_case")]
+enum What {
+    #[default]
+    All,
+    Header,
+    Sections,
+    Segments,
 }

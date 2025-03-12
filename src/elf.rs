@@ -135,8 +135,8 @@ impl Elf {
         Ok(())
     }
 
-    pub fn read_section_names<F: Read + Write + Seek>(
-        &mut self,
+    pub fn read_section_names<F: Read + Seek>(
+        &self,
         mut file: F,
     ) -> Result<StringTable, Error> {
         let section = self.sections.get(self.header.section_names_index as usize);
