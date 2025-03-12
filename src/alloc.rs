@@ -1,14 +1,13 @@
 use crate::constants::*;
 
+#[derive(Default)]
 pub struct Allocations {
     allocations: Vec<(u64, Alloc)>,
 }
 
 impl Allocations {
     pub fn new() -> Self {
-        Self {
-            allocations: Default::default(),
-        }
+        Self::default()
     }
 
     pub fn push(&mut self, start: u64, end: u64) {

@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::SectionKind;
+
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("Not an ELF file")]
@@ -28,6 +30,10 @@ pub enum Error {
     InvalidSectionKind(u32),
     #[error("Invalid section size: {0}")]
     InvalidSectionLen(u16),
+    #[error("Invalid first section kind: {0:?} (should be NULL)")]
+    InvalidFirstSectionKind(SectionKind),
+    #[error("Too many sections: {0}")]
+    TooManySections(usize),
     #[error("Invalid ALLOC section: should be covered by LOAD segment: {0:#x}..{1:#x}")]
     SectionNotCovered(u64, u64),
     #[error("Invalid dynamic entry kind: {0:#x}")]

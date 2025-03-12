@@ -38,14 +38,17 @@ impl StringTable {
     }
 
     pub fn get_string(&self, offset: usize) -> Option<&CStr> {
-        let Some(c_str_bytes) = self.0.get(offset..) else {
-            return None;
-        };
+        let c_str_bytes = self.0.get(offset..)?;
         CStr::from_bytes_until_nul(c_str_bytes).ok()
     }
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let n = self.0.len();
+        n == 0 || (n == 1 && self.0[0] == 0)
     }
 
     pub fn into_inner(self) -> Vec<u8> {
@@ -85,14 +88,14 @@ mod tests {
         );
         assert_eq!(None, StringTable(b"".to_vec()).get_offset(c"hello"));
         assert_eq!(None, StringTable(b"".to_vec()).get_offset(c""));
-        assert_eq!(None, StringTable(b"123".to_vec()).get_offset(c""));
-        assert_eq!(Some(0), StringTable(b"\0123".to_vec()).get_offset(c""));
+        assert_eq!(None, StringTable(b"abc".to_vec()).get_offset(c""));
+        assert_eq!(Some(0), StringTable(b"\0abc".to_vec()).get_offset(c""));
     }
 
     #[test]
     fn test_symmetry() {
         test_get_string(b"hello\0", c"hello");
-        test_get_string(b"\0123", c"");
+        test_get_string(b"\0abc", c"");
     }
 
     fn test_get_string(strings: &[u8], expected: &CStr) {

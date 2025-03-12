@@ -219,7 +219,10 @@ impl Header {
         if blocks_overlap(&segments_range, &sections_range) {
             return Err(Error::Overlap("Segments and sections overlap"));
         }
-        if self.section_names_index != 0 && self.section_names_index > self.num_sections {
+        if self.section_names_index != 0
+            && self.num_sections != 0
+            && self.section_names_index > self.num_sections
+        {
             return Err(Error::InvalidSectionHeaderStringTableIndex(
                 self.section_names_index,
             ));

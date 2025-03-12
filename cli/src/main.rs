@@ -227,9 +227,10 @@ fn patch(args: PatchArgs) -> Result<ExitCode, Box<dyn std::error::Error>> {
         value.push(0_u8);
         let value = CString::from_vec_with_nul(value)?;
         elf.add_dynamic_c_str(&mut file, tag.into(), &value)?;
+        changed = true;
     }
     if !changed {
-        return Err("No option selected".into());
+        return Err("No changes".into());
     }
     elf.write(&mut file)?;
     fs_err::rename(&new_path, &args.file)?;

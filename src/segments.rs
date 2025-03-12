@@ -230,14 +230,6 @@ impl ProgramHeader {
     }
 
     pub(crate) fn add(&mut self, segment: Segment) -> usize {
-        log::trace!(
-            "Adding segment {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}",
-            segment.kind,
-            segment.offset,
-            segment.offset + segment.file_size,
-            segment.virtual_address,
-            segment.virtual_address + segment.memory_size
-        );
         // Append null segments.
         if segment.kind == SegmentKind::Null {
             let i = self.entries.len();
@@ -248,7 +240,7 @@ impl ProgramHeader {
             .entries
             .iter()
             .position(|segment| segment.kind == SegmentKind::Null);
-        match spare_index {
+        let i = match spare_index {
             Some(i) => {
                 // Replace null segment with the new one.
                 self.entries[i] = segment;
@@ -260,7 +252,26 @@ impl ProgramHeader {
                 self.entries.push(segment);
                 i
             }
-        }
+        };
+        let segment = &self.entries[i];
+        log::trace!(
+            "Adding segment [{i}] {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}",
+            segment.kind,
+            segment.offset,
+            segment.offset + segment.file_size,
+            segment.virtual_address,
+            segment.virtual_address + segment.memory_size
+        );
+        i
+    }
+
+    /// Is the file offsets range covered by LOAD segment?
+    pub(crate) fn is_loadable(&self, file_offsets: Range<u64>) -> bool {
+        self.entries.iter().any(|segment| {
+            segment.kind == SegmentKind::Loadable
+                && segment.offset <= file_offsets.start
+                && file_offsets.end <= segment.offset + segment.file_size
+        })
     }
 }
 
@@ -381,7 +392,8 @@ impl Segment {
 
     /// Zero out the entry's content.
     pub fn clear_content<W: Write + Seek>(&self, writer: W) -> Result<(), Error> {
-        zero(writer, self.offset, self.file_size)
+        zero(writer, self.offset, self.file_size)?;
+        Ok(())
     }
 
     pub const fn address_range(&self) -> Range<u64> {

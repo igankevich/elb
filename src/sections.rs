@@ -4,6 +4,7 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::ops::Range;
 
 use crate::constants::*;
 use crate::io::*;
@@ -17,6 +18,7 @@ use crate::Header;
 use crate::ProgramHeader;
 use crate::SectionFlags;
 use crate::SectionKind;
+use crate::SegmentKind;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -57,6 +59,14 @@ impl SectionHeader {
     }
 
     pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
+        if let Some(section) = self.entries.first() {
+            if section.kind != SectionKind::Null {
+                return Err(Error::InvalidFirstSectionKind(section.kind));
+            }
+        }
+        if (SECTION_RESERVED_MIN..=SECTION_RESERVED_MAX).contains(&self.entries.len()) {
+            return Err(Error::TooManySections(self.entries.len()));
+        }
         for section in self.entries.iter() {
             section.validate(header, program_header)?;
         }
@@ -80,18 +90,28 @@ impl SectionHeader {
     }
 
     pub(crate) fn add(&mut self, section: Section) -> usize {
-        // Append null sections.
+        // Always append NULL sections.
         if section.kind == SectionKind::Null {
             let i = self.entries.len();
             self.entries.push(section);
             return i;
         }
+        // The first section should always be NULL.
+        // It is used for e.g. storing the no. of segments if it overflows u16.
+        if self.entries.is_empty() {
+            self.entries.push(Section::null());
+        }
+        let skip = 1;
         let spare_index = self
             .entries
             .iter()
+            // The first NULL section can't be reused.
+            .skip(skip)
             .position(|section| section.kind == SectionKind::Null);
         match spare_index {
             Some(i) => {
+                let i = i + skip;
+                log::trace!("Found NULL section at {i}");
                 // Replace null section with the new one.
                 self.entries[i] = section;
                 i
@@ -102,6 +122,12 @@ impl SectionHeader {
                 self.entries.push(section);
                 i
             }
+        }
+    }
+
+    pub(crate) fn finish(&mut self) {
+        if self.entries.is_empty() {
+            self.entries.push(Section::null());
         }
     }
 }
@@ -237,7 +263,20 @@ impl Section {
 
     /// Zero out the entry's content.
     pub fn clear_content<W: Write + Seek>(&self, writer: W) -> Result<(), Error> {
-        zero(writer, self.offset, self.size)
+        zero(writer, self.offset, self.size)?;
+        Ok(())
+    }
+
+    pub const fn memory_offsets(&self) -> Range<u64> {
+        let start = self.virtual_address;
+        let end = start + self.size;
+        start..end
+    }
+
+    pub const fn file_offsets(&self) -> Range<u64> {
+        let start = self.offset;
+        let end = start + self.size;
+        start..end
     }
 
     pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
@@ -298,7 +337,11 @@ impl Section {
         let section_end = section_start + self.size;
         if section_start != section_end
             && self.flags.contains(SectionFlags::ALLOC)
+            && self.kind != SectionKind::NoBits
             && !program_header.iter().any(|segment| {
+                if segment.kind != SegmentKind::Loadable {
+                    return false;
+                }
                 let segment_start = segment.virtual_address;
                 let segment_end = segment_start + segment.memory_size;
                 segment_start <= section_start

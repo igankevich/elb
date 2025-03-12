@@ -15,6 +15,9 @@ pub const SECTION_LEN_32: usize = 40;
 pub const SECTION_LEN_64: usize = 64;
 pub const MAX_SECTION_LEN: usize = SECTION_LEN_64;
 
+pub const SECTION_RESERVED_MIN: usize = 0xff00;
+pub const SECTION_RESERVED_MAX: usize = 0xffff;
+
 pub const PAGE_SIZE: usize = 4096;
 
 pub const INTERP_SECTION: &CStr = c".interp";
@@ -22,7 +25,9 @@ pub const SHSTRTAB_SECTION: &CStr = c".shstrtab";
 pub const DYNSTR_SECTION: &CStr = c".dynstr";
 pub const DYNAMIC_SECTION: &CStr = c".dynamic";
 
+#[allow(unused)]
 pub const DYNAMIC_ALIGN: u64 = 8;
+pub const DYNAMIC_ENTRY_LEN: u64 = 16;
 #[allow(unused)]
 pub const PHDR_ALIGN: u64 = 8;
 #[allow(unused)]
