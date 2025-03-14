@@ -359,9 +359,8 @@ mod tests {
                         let mut working_arg = None;
                         for arg in [c"--version", c"--help"] {
                             let bytes = arg.to_bytes_with_nul();
-                            // TODO
-                            //// remove dashes
-                            //let bytes = &bytes[2..];
+                            // remove dashes
+                            let bytes = &bytes[2..];
                             let Some(_) =
                                 data.windows(bytes.len()).position(|window| window == bytes)
                             else {
@@ -425,11 +424,19 @@ mod tests {
                                 .arg(arg)
                                 .stdin(Stdio::null())
                                 .status();
-                            assert_eq!(
-                                expected_result.unwrap(),
-                                actual_result.unwrap(),
-                                "Path = {path:?}"
-                            );
+                            let expected = expected_result.unwrap();
+                            let actual = actual_result.unwrap();
+                            if expected != actual {
+                                let workdir = workdir.to_path_buf();
+                                std::mem::forget(tmpdir);
+
+                                panic!(
+                                    "Expected {expected:?}, actual {actual:?}, command {:?} {:?}, files {:?}",
+                                    path,
+                                    arg,
+                                    workdir
+                                );
+                            }
                         }
                     }
                     Err(LoaderError::Elf(elfie::Error::NotElf)) => continue,
@@ -469,8 +476,21 @@ mod tests {
         "/usr/local/lib64",
     ];
 
-    const NOT_WORKING: [&str; 1] = [
+    const NOT_WORKING: &[&str] = &[
         // qt/plugins needs to be copied to RUNPATH
-        "scribus"
+        "scribus",
+        // SIGSEGV, garbled `ldd` output
+        "convco",
+        "cargo-sqlx",
+        "mdbook-linkcheck",
+        "cargo-msrv",
+        "sqlx",
+        "cargo-about",
+        "cargo-deny",
+        "darktable-rs-identify",
+        "chromium",
+        // no --version arg
+        "FBReader",
+        "chromedriver",
     ];
 }
