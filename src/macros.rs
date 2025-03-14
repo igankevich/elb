@@ -5,12 +5,14 @@ macro_rules! define_specific_enum {
         $error:ident,
         $(($name:ident, $value:expr),)*
         $(Range($name2:ident ($low:expr, $high:expr)),)*
+        $(Other($name3:ident))*
     } => {
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
         #[repr($int)]
         pub enum $enum {
             $( $name = $value, )*
             $( $name2($int), )*
+            $( $name3($int), )*
         }
 
         impl $enum {
@@ -18,6 +20,7 @@ macro_rules! define_specific_enum {
                 match self {
                     $( Self::$name => $value, )*
                     $( Self::$name2(n) => n, )*
+                    $( Self::$name3(n) => n, )*
                 }
             }
         }
@@ -28,6 +31,8 @@ macro_rules! define_specific_enum {
                 match n {
                     $( $value => Ok(Self::$name), )*
                     $( $low..=$high => Ok(Self::$name2(n)), )*
+                    $( n => Ok(Self::$name3(n)), )*
+                    #[allow(unreachable_patterns)]
                     n => Err(crate::Error::$error(n)),
                 }
             }

@@ -13,7 +13,7 @@ use crate::other::*;
 use crate::validation::*;
 use crate::ByteOrder;
 use crate::Class;
-use crate::DynamicEntryKind;
+use crate::DynamicTag;
 use crate::Error;
 use crate::Header;
 use crate::SegmentFlags;
@@ -63,7 +63,7 @@ impl ProgramHeader {
         mut reader: R,
         class: Class,
         byte_order: ByteOrder,
-    ) -> Result<Vec<(DynamicEntryKind, u64)>, Error> {
+    ) -> Result<Vec<(DynamicTag, u64)>, Error> {
         match self
             .entries
             .iter()
@@ -76,7 +76,7 @@ impl ProgramHeader {
                 let step = 2 * word_len;
                 let mut entries = Vec::with_capacity(content.len() / step);
                 for _ in (0..content.len()).step_by(step) {
-                    let tag: DynamicEntryKind = get_word(class, byte_order, slice).try_into()?;
+                    let tag: DynamicTag = get_word(class, byte_order, slice).try_into()?;
                     slice = &slice[word_len..];
                     let value = get_word(class, byte_order, slice);
                     slice = &slice[word_len..];

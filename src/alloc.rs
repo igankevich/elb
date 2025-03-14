@@ -24,44 +24,38 @@ impl Allocations {
         }
     }
 
-    pub fn finish(&mut self) {
-        self.push(0, 0);
+    pub fn finish(&mut self, min_memory_offset: u64) {
+        self.push(min_memory_offset, min_memory_offset);
         self.push(u64::MAX, u64::MAX);
-        self.allocations.sort_unstable_by_key(|x| x.0);
+        self.allocations.sort_unstable();
     }
 
     pub fn alloc_file_block(&self, size: u64, memory_offset: u64) -> Option<u64> {
-        let mut counter = 0;
-        let mut start = None;
-        for i in 0..self.allocations.len() {
+        let mut counter = 1;
+        for i in 1..self.allocations.len() {
             let (offset, alloc) = &self.allocations[i];
+            let prev_counter = counter;
             match alloc {
                 Alloc::Start => counter += 1,
                 Alloc::End => counter -= 1,
             }
-            if counter == 0 {
-                if start.is_none() {
-                    start = Some(offset);
-                }
-            } else {
-                if let Some(start) = start {
-                    if offset - start >= size {
-                        let padding = calc_padding(*start, memory_offset, PAGE_SIZE as u64)?;
-                        let padded_size = padding.checked_add(size)?;
-                        if offset - start >= padded_size {
-                            let start = start.checked_add(padding)?;
-                            log::trace!(
-                                "Allocating file block {:#x}..{:#x}, padding {}, align {}",
-                                start,
-                                start + size,
-                                padding,
-                                PAGE_SIZE,
-                            );
-                            return Some(start);
-                        }
+            if prev_counter == 0 && counter == 1 {
+                let start = self.allocations[i - 1].0;
+                if offset - start >= size {
+                    let padding = calc_padding(start, memory_offset, PAGE_SIZE as u64)?;
+                    let padded_size = padding.checked_add(size)?;
+                    if offset - start >= padded_size {
+                        let start = start.checked_add(padding)?;
+                        log::trace!(
+                            "Allocating file block {:#x}..{:#x}, padding {}, align {}",
+                            start,
+                            start + size,
+                            padding,
+                            PAGE_SIZE,
+                        );
+                        return Some(start);
                     }
                 }
-                start = None;
             }
         }
         None
@@ -69,45 +63,40 @@ impl Allocations {
 
     pub fn alloc_memory_block(&self, size: u64, align: u64) -> Option<u64> {
         let align = align.max(1);
-        let mut counter = 0;
-        let mut start = None;
-        for i in 0..self.allocations.len() {
+        let mut counter = 1;
+        for i in 1..self.allocations.len() {
             let (offset, alloc) = &self.allocations[i];
+            let prev_counter = counter;
             match alloc {
                 Alloc::Start => counter += 1,
                 Alloc::End => counter -= 1,
             }
-            if counter == 0 {
-                if start.is_none() {
-                    start = Some(offset);
+            if prev_counter == 0 && counter == 1 {
+                let start = self.allocations[i - 1].0;
+                let rem = start % align;
+                let padding = if rem != 0 { align - rem } else { 0 };
+                let padded_size = padding.checked_add(size)?;
+                if offset - start >= padded_size {
+                    let start = start.checked_add(padding)?;
+                    log::trace!(
+                        "Allocating memory block {:#x}..{:#x}, padding {}, align {}",
+                        start,
+                        start + size,
+                        padding,
+                        align,
+                    );
+                    return Some(start);
                 }
-            } else {
-                if let Some(start) = start {
-                    let rem = start % align;
-                    let padding = if rem != 0 { align - rem } else { 0 };
-                    let padded_size = padding.checked_add(size)?;
-                    if offset - start >= padded_size {
-                        let start = start.checked_add(padding)?;
-                        log::trace!(
-                            "Allocating memory block {:#x}..{:#x}, padding {}, align {}",
-                            start,
-                            start + size,
-                            padding,
-                            align,
-                        );
-                        return Some(start);
-                    }
-                }
-                start = None;
             }
         }
         None
     }
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Alloc {
-    Start,
-    End,
+    Start = 0,
+    End = 1,
 }
 
 fn calc_padding(offset1: u64, offset2: u64, align: u64) -> Option<u64> {
@@ -149,5 +138,15 @@ mod tests {
             assert_eq!((memory_offset + padding) % align, file_offset % align);
             Ok(())
         });
+    }
+
+    #[test]
+    fn test_alloc_memory_block() {
+        let mut allocations = Allocations::new();
+        allocations.push(0, 64);
+        allocations.push(1000, 2000);
+        allocations.push(u64::MAX, u64::MAX);
+        allocations.finish(0);
+        assert_eq!(Some(2000), allocations.alloc_memory_block(4096, 1000));
     }
 }

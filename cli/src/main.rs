@@ -4,20 +4,21 @@ use colored::Colorize;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::OsString;
-use std::io::Read;
-use std::io::Seek;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use elfie::Elf;
+use elfie::StringTable;
 use fs_err::File;
 use fs_err::OpenOptions;
 
 mod formatting;
+mod loader;
 mod logger;
 
 use self::formatting::*;
+use self::loader::*;
 use self::logger::*;
 
 #[derive(clap::Parser)]
@@ -49,8 +50,21 @@ enum Command {
         #[clap(value_name = "ELF file")]
         file: PathBuf,
     },
+    /// Print dependencies.
+    Deps(DepsArgs),
     /// Modify ELF file.
     Patch(PatchArgs),
+}
+
+#[derive(clap::Args)]
+struct DepsArgs {
+    /// File system root.
+    #[clap(short = 'r', long = "root", value_name = "DIR", default_value = "/")]
+    root: PathBuf,
+
+    /// ELF file.
+    #[clap(value_name = "ELF file")]
+    file: PathBuf,
 }
 
 #[derive(clap::Args)]
@@ -65,7 +79,7 @@ struct PatchArgs {
 
     /// Set dynamic table entry.
     #[clap(long = "add-dynamic", value_name = "tag=value,...")]
-    add_dynamic: Vec<String>,
+    set_dynamic: Vec<String>,
 
     /// Remove dynamic table entry.
     #[clap(action, long = "remove-dynamic")]
@@ -92,6 +106,7 @@ fn do_main() -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         Command::Show { what, file } => show(what, file),
         Command::Check { file } => check(file),
+        Command::Deps(deps_args) => deps(deps_args),
         Command::Patch(patch_args) => patch(patch_args),
     }
 }
@@ -99,6 +114,7 @@ fn do_main() -> Result<(), Box<dyn std::error::Error>> {
 fn show(what: What, file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::open(&file)?;
     let elf = Elf::read_unchecked(&mut file)?;
+    let section_names = elf.read_section_names(&mut file)?;
     match what {
         What::Header => {
             let mut printer = Printer::new(false);
@@ -106,22 +122,23 @@ fn show(what: What, file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         }
         What::Sections => {
             let mut printer = Printer::new(false);
-            show_sections(&elf, &mut file, &mut printer)?;
+            show_sections(&elf, &section_names, &mut printer)?;
         }
         What::Segments => {
             let mut printer = Printer::new(false);
-            show_segments(&elf, &mut printer)?;
+            show_segments(&elf, &section_names, &mut printer)?;
         }
         What::All => {
             let mut printer = Printer::new(true);
             printer.title("Header");
             show_header(&elf, &mut printer);
             printer.title("Sections");
-            show_sections(&elf, &mut file, &mut printer)?;
+            show_sections(&elf, &section_names, &mut printer)?;
             printer.title("Segments");
-            show_segments(&elf, &mut printer)?;
+            show_segments(&elf, &section_names, &mut printer)?;
         }
     }
+    elf.validate()?;
     Ok(())
 }
 
@@ -154,9 +171,9 @@ fn show_header(elf: &Elf, printer: &mut Printer) {
     );
 }
 
-fn show_sections<R: Read + Seek>(
+fn show_sections(
     elf: &Elf,
-    mut file: R,
+    names: &StringTable,
     printer: &mut Printer,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !elf.sections.is_empty() {
@@ -165,7 +182,6 @@ fn show_sections<R: Read + Seek>(
             "Name", "File block", "Memory block"
         ));
     }
-    let names = elf.read_section_names(&mut file)?;
     for section in elf.sections.iter() {
         let memory_start = section.virtual_address;
         let memory_end = memory_start + section.size;
@@ -202,10 +218,14 @@ fn show_sections<R: Read + Seek>(
     Ok(())
 }
 
-fn show_segments(elf: &Elf, printer: &mut Printer) -> Result<(), Box<dyn std::error::Error>> {
+fn show_segments(
+    elf: &Elf,
+    names: &StringTable,
+    printer: &mut Printer,
+) -> Result<(), Box<dyn std::error::Error>> {
     if !elf.sections.is_empty() {
         printer.row(format_args!(
-            "{:20}  {:38}  {:38}  Flags",
+            "{:20}  {:38}  {:38}  Flags  Sections",
             "Type", "File block", "Memory block"
         ));
     }
@@ -214,24 +234,45 @@ fn show_segments(elf: &Elf, printer: &mut Printer) -> Result<(), Box<dyn std::er
         let memory_end = memory_start + segment.memory_size;
         let file_start = segment.offset;
         let file_end = file_start + segment.file_size;
+        let mut section_names = Vec::new();
+        for section in elf.sections.iter() {
+            if (file_start..file_end).contains(&section.offset) {
+                let name_bytes = names
+                    .get_string(section.name_offset as usize)
+                    .unwrap_or_default();
+                let name = String::from_utf8_lossy(name_bytes.to_bytes());
+                if name.is_empty() {
+                    continue;
+                }
+                section_names.push(name);
+            }
+        }
         printer.row(format_args!(
-            "{:20}  {:#018x}..{:#018x}  {:#018x}..{:#018x}  {}",
+            "{:20}  {:#018x}..{:#018x}  {:#018x}..{:#018x}  {}  {}",
             SegmentKindStr(segment.kind),
             file_start,
             file_end,
             memory_start,
             memory_end,
             SegmentFlagsStr(segment.flags),
+            section_names.join(" ")
         ));
     }
-    elf.validate()?;
-    // TODO segment-to-section mapping
     Ok(())
 }
 
 fn check(file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::open(&file)?;
     let _elf = Elf::read(&mut file)?;
+    Ok(())
+}
+
+fn deps(args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let loader = DynamicLoader::from_rootfs_dir(args.root)?;
+    let dependencies = loader.resolve_dependencies(args.file)?;
+    for dep in dependencies.iter() {
+        println!("{}", dep.display());
+    }
     Ok(())
 }
 
@@ -268,13 +309,13 @@ fn patch(args: PatchArgs) -> Result<(), Box<dyn std::error::Error>> {
         elf.remove_dynamic(&mut file, entry.into())?;
         changed = true;
     }
-    for pair in args.add_dynamic.into_iter() {
+    for pair in args.set_dynamic.into_iter() {
         let mut iter = pair.splitn(2, '=');
         let tag: DynamicEntry = ValueEnum::from_str(iter.next().ok_or("Tag not found")?, true)?;
         let mut value = iter.next().ok_or("Value not found")?.as_bytes().to_vec();
         value.push(0_u8);
         let value = CString::from_vec_with_nul(value)?;
-        elf.add_dynamic_c_str(&mut file, tag.into(), &value)?;
+        elf.set_dynamic_c_str(&mut file, tag.into(), &value)?;
         changed = true;
     }
     if !changed {
@@ -326,7 +367,7 @@ enum DynamicEntry {
     Runpath,
 }
 
-impl From<DynamicEntry> for elfie::DynamicEntryKind {
+impl From<DynamicEntry> for elfie::DynamicTag {
     fn from(other: DynamicEntry) -> Self {
         match other {
             DynamicEntry::Rpath => Self::RpathOffset,

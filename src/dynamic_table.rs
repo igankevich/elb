@@ -4,12 +4,12 @@ use std::ops::DerefMut;
 use crate::io::*;
 use crate::ByteOrder;
 use crate::Class;
-use crate::DynamicEntryKind;
+use crate::DynamicTag;
 use crate::Error;
 
 #[derive(Default, Debug)]
 pub struct DynamicTable {
-    entries: Vec<(DynamicEntryKind, u64)>,
+    entries: Vec<(DynamicTag, u64)>,
 }
 
 impl DynamicTable {
@@ -23,8 +23,8 @@ impl DynamicTable {
         let step = 2 * word_len;
         let mut entries = Vec::with_capacity(content.len() / step);
         for _ in (0..content.len()).step_by(step) {
-            let tag: DynamicEntryKind = get_word(class, byte_order, slice).try_into()?;
-            if tag == DynamicEntryKind::Null {
+            let tag: DynamicTag = get_word(class, byte_order, slice).try_into()?;
+            if tag == DynamicTag::Null {
                 // NULL entry marks the end of the section.
                 break;
             }
@@ -48,13 +48,13 @@ impl DynamicTable {
         Ok(content)
     }
 
-    pub fn set(&mut self, tag: DynamicEntryKind, value: u64) {
-        assert_ne!(DynamicEntryKind::Null, tag);
+    pub fn set(&mut self, tag: DynamicTag, value: u64) {
+        assert_ne!(DynamicTag::Null, tag);
         match self.entries.iter().position(|(t, _)| *t == tag) {
             Some(i) => {
                 log::trace!("Replacing dynamic table entry {tag:?} at index {i} with {value}");
                 // Set to NULL temporarily
-                self.entries[i].0 = DynamicEntryKind::Null;
+                self.entries[i].0 = DynamicTag::Null;
                 self.entries[i].1 = value;
                 // Remove other values if any.
                 self.entries.retain(|(t, _)| *t != tag);
@@ -70,7 +70,7 @@ impl DynamicTable {
 }
 
 impl Deref for DynamicTable {
-    type Target = Vec<(DynamicEntryKind, u64)>;
+    type Target = Vec<(DynamicTag, u64)>;
     fn deref(&self) -> &Self::Target {
         &self.entries
     }

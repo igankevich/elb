@@ -52,7 +52,7 @@ bitflags! {
 }
 
 define_specific_enum! {
-    DynamicEntryKind, u32,
+    DynamicTag, u32,
     InvalidDynamicEntryKind,
     (Null, 0),
     (Needed, 1),
@@ -92,17 +92,18 @@ define_specific_enum! {
     (RelrTableAddress, 36),
     (RelrEntrySize, 37),
     Range(OsSpecific(0x6000000d, 0x6ffff000)),
-    Range(Other(0x6ffff001, 0x6fffffff)),
+    //Range(Other(0x6ffff001, 0x6fffffff)),
     Range(ProcSpecific(0x70000000, 0x7fffffff)),
+    Other(Other)
 }
 
-impl DynamicEntryKind {
+impl DynamicTag {
     pub const fn as_u32(self) -> u32 {
         self.as_number()
     }
 }
 
-impl TryFrom<u64> for DynamicEntryKind {
+impl TryFrom<u64> for DynamicTag {
     type Error = Error;
     fn try_from(other: u64) -> Result<Self, Self::Error> {
         let number: u32 = other

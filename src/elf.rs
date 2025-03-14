@@ -1,12 +1,14 @@
 use std::ffi::CStr;
+use std::ffi::CString;
 use std::io::Read;
 use std::io::Seek;
 use std::io::Write;
+use std::ops::Range;
 
 use crate::constants::*;
 use crate::Allocations;
-use crate::DynamicEntryKind;
 use crate::DynamicTable;
+use crate::DynamicTag;
 use crate::Error;
 use crate::Header;
 use crate::ProgramHeader;
@@ -24,6 +26,7 @@ pub struct Elf {
     pub header: Header,
     pub segments: ProgramHeader,
     pub sections: SectionHeader,
+    min_memory_offset: u64,
 }
 
 impl Elf {
@@ -31,10 +34,19 @@ impl Elf {
         let header = Header::read(&mut reader)?;
         let segments = ProgramHeader::read(&mut reader, &header)?;
         let sections = SectionHeader::read(&mut reader, &header)?;
+        let min_memory_offset = segments
+            .iter()
+            .filter(|segment| segment.kind == SegmentKind::Loadable)
+            .map(|segment| segment.virtual_address)
+            .min()
+            .unwrap_or(0)
+            .max(header.len as u64);
+        log::trace!("Min. memory offset = {:#x}", min_memory_offset);
         Ok(Self {
             header,
             segments,
             sections,
+            min_memory_offset,
         })
     }
 
@@ -135,15 +147,46 @@ impl Elf {
         Ok(())
     }
 
-    pub fn read_section_names<F: Read + Seek>(
-        &self,
-        mut file: F,
-    ) -> Result<StringTable, Error> {
+    pub fn read_section_names<F: Read + Seek>(&self, mut file: F) -> Result<StringTable, Error> {
         let section = self.sections.get(self.header.section_names_index as usize);
         if let Some(section) = section {
             Ok(section.read_content(&mut file)?.into())
         } else {
             Ok(Default::default())
+        }
+    }
+
+    pub fn read_section<R: Read + Seek>(
+        &self,
+        name: &CStr,
+        mut file: R,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let names = self.read_section_names(&mut file)?;
+        let i = self
+            .sections
+            .iter()
+            .position(|section| Some(name) == names.get_string(section.name_offset as usize));
+        match i {
+            Some(i) => Ok(Some(self.sections[i].read_content(&mut file)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn read_interpreter<R: Read + Seek>(&self, mut file: R) -> Result<Option<CString>, Error> {
+        // TODO use read_section
+        let names = self.read_section_names(&mut file)?;
+        let interpreter_section_index = self.sections.iter().position(|section| {
+            if section.kind != SectionKind::ProgramData {
+                return false;
+            }
+            let string = names.get_string(section.name_offset as usize);
+            Some(INTERP_SECTION) == string
+        });
+        match interpreter_section_index {
+            Some(i) => {
+                Ok(CString::from_vec_with_nul(self.sections[i].read_content(&mut file)?).ok())
+            }
+            None => Ok(None),
         }
     }
 
@@ -185,14 +228,15 @@ impl Elf {
                 size: interpreter.len() as u64,
                 link: 0,
                 info: 0,
-                align: 1,
+                // TODO
+                align: PAGE_SIZE as u64,
                 entry_len: 0,
             },
             &names,
         )?;
         let section = &self.sections[i];
         section.write_out(&mut file, interpreter)?;
-        self.segments.push(Segment {
+        let segment = Segment {
             kind: SegmentKind::Interpreter,
             flags: SegmentFlags::READABLE,
             offset: section.offset,
@@ -201,7 +245,18 @@ impl Elf {
             file_size: section.size,
             memory_size: section.size,
             align: section.align,
+        };
+        self.segments.push(Segment {
+            kind: SegmentKind::Loadable,
+            flags: segment.flags,
+            virtual_address: segment.virtual_address,
+            physical_address: segment.physical_address,
+            offset: segment.offset,
+            file_size: segment.file_size,
+            memory_size: segment.memory_size,
+            align: PAGE_SIZE as u64,
         });
+        self.segments.push(segment);
         // We don't write segment here since the content and the location is the same as in the
         // `.interp`. section.
         Ok(())
@@ -210,7 +265,7 @@ impl Elf {
     pub fn remove_dynamic<F: Read + Write + Seek>(
         &mut self,
         mut file: F,
-        entry_kind: DynamicEntryKind,
+        entry_kind: DynamicTag,
     ) -> Result<(), Error> {
         let result1 = match self
             .segments
@@ -275,13 +330,39 @@ impl Elf {
         Ok(())
     }
 
-    pub fn add_dynamic_c_str<F: Read + Write + Seek>(
+    pub fn read_dynamic_table<R: Read + Seek>(&self, mut file: R) -> Result<DynamicTable, Error> {
+        let names = self.read_section_names(&mut file)?;
+        let bytes = match self.sections.iter().position(|section| {
+            Some(DYNAMIC_SECTION) == names.get_string(section.name_offset as usize)
+        }) {
+            Some(i) => self.sections[i].read_content(&mut file)?,
+            None => Vec::new(),
+        };
+        let table = DynamicTable::from_bytes(&bytes, self.header.class, self.header.byte_order)?;
+        Ok(table)
+    }
+
+    pub fn read_dynamic_string_table<R: Read + Seek>(
+        &self,
+        mut file: R,
+    ) -> Result<StringTable, Error> {
+        let names = self.read_section_names(&mut file)?;
+        let bytes = match self.sections.iter().position(|section| {
+            Some(DYNSTR_SECTION) == names.get_string(section.name_offset as usize)
+        }) {
+            Some(i) => self.sections[i].read_content(&mut file)?,
+            None => Vec::new(),
+        };
+        Ok(StringTable::from(bytes))
+    }
+
+    pub fn set_dynamic_c_str<F: Read + Write + Seek>(
         &mut self,
         mut file: F,
-        entry_kind: DynamicEntryKind,
+        entry_kind: DynamicTag,
         value: &CStr,
     ) -> Result<(), Error> {
-        use DynamicEntryKind::*;
+        use DynamicTag::*;
         let mut names = self.read_section_names(&mut file)?;
         let (dynamic_table_bytes, old_dynamic_table_virtual_address) =
             match self.sections.iter().position(|section| {
@@ -677,6 +758,7 @@ impl Elf {
                 self.free_segment(&mut writer, i)?;
             }
         }
+        /*
         // Adjust the size of the corresponding LOAD segment of ALLOC section if any.
         if section.flags.contains(SectionFlags::ALLOC) {
             if let Some(i) = self.segments.iter().position(|segment| {
@@ -688,18 +770,19 @@ impl Elf {
                 let segment_address_range = segment.address_range();
                 let segment_kind = segment.kind;
                 let segment_flags = segment.flags;
+                let mut new_segments = Vec::new();
                 for section in self.sections.iter() {
                     if section.flags.contains(SectionFlags::ALLOC)
                         && segment_address_range.contains(&section.virtual_address)
                     {
-                        log::trace!("Splitting off section {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}", 
+                        log::trace!("Splitting off section {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}",
                             names.get_string(section.name_offset as usize).unwrap_or_default(),
                             section.offset,
                             section.offset + section.size,
                             section.virtual_address,
                             section.virtual_address + section.size
                         );
-                        self.segments.add(Segment {
+                        new_segments.push(Segment {
                             kind: segment_kind,
                             flags: segment_flags,
                             offset: section.offset,
@@ -707,14 +790,18 @@ impl Elf {
                             physical_address: section.virtual_address,
                             file_size: section.size,
                             memory_size: section.size,
-                            align: section.align,
+                            align: PAGE_SIZE as u64,
                         });
                     }
                 }
                 // Remove the segment without clearing out its contents.
                 self.segments.remove(i);
+                for segment in new_segments.into_iter() {
+                    self.alloc_segment(segment)?;
+                }
             }
         }
+        */
         Ok(section)
     }
 
@@ -752,11 +839,10 @@ impl Elf {
 
     fn get_file_allocations(&self) -> Allocations {
         let mut allocations = Allocations::new();
-        allocations.push(0, self.header.len as u64);
         allocations.extend(
             self.sections
                 .iter()
-                .filter(|section| matches!(section.kind, SectionKind::NoBits | SectionKind::Null))
+                .filter(|section| !matches!(section.kind, SectionKind::NoBits | SectionKind::Null))
                 .map(|section| (section.offset, section.offset + section.size)),
         );
         allocations.extend(
@@ -764,31 +850,34 @@ impl Elf {
                 .iter()
                 .map(|segment| (segment.offset, segment.offset + segment.file_size)),
         );
-        allocations.finish();
+        allocations.finish(self.header.len as u64);
         allocations
     }
 
     fn alloc_memory_block(&self, size: u64, align: u64) -> Option<u64> {
         let mut allocations = Allocations::new();
-        allocations.push(0, self.header.len as u64);
         allocations.extend(
             self.sections
                 .iter()
-                .filter(|section| matches!(section.kind, SectionKind::Null))
+                .filter(|section| {
+                    !matches!(section.kind, SectionKind::Null)
+                        && section.flags.contains(SectionFlags::ALLOC)
+                })
                 .map(|section| {
-                    (
-                        section.virtual_address,
-                        section.virtual_address + section.size,
-                    )
+                    let Range { start, end } = section.memory_offsets();
+                    (start, end)
                 }),
         );
-        allocations.extend(self.segments.iter().map(|segment| {
-            (
-                segment.virtual_address,
-                segment.virtual_address + segment.memory_size,
-            )
-        }));
-        allocations.finish();
+        allocations.extend(
+            self.segments
+                .iter()
+                .filter(|segment| segment.kind == SegmentKind::Loadable)
+                .map(|segment| {
+                    let Range { start, end } = segment.address_range();
+                    (start, end)
+                }),
+        );
+        allocations.finish(self.min_memory_offset);
         allocations.alloc_memory_block(size, align)
     }
 }
