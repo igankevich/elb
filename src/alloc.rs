@@ -125,12 +125,12 @@ fn calc_padding(offset1: u64, offset2: u64, align: u64) -> Option<u64> {
     }
 }
 
-const fn align_down(offset: u64, page_size: u64) -> u64 {
+pub(crate) const fn align_down(offset: u64, page_size: u64) -> u64 {
     debug_assert!(page_size > 0 && page_size.is_power_of_two());
     offset & !(page_size - 1)
 }
 
-const fn align_up(offset: u64, page_size: u64) -> u64 {
+pub(crate) const fn align_up(offset: u64, page_size: u64) -> u64 {
     debug_assert!(page_size > 0 && page_size.is_power_of_two());
     let rem = offset & (page_size - 1);
     if rem == 0 {

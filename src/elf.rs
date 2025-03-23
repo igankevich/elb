@@ -77,7 +77,7 @@ impl Elf {
 
     pub fn validate(&self) -> Result<(), Error> {
         self.header.validate()?;
-        self.segments.validate(&self.header)?;
+        self.segments.validate(&self.header, self.page_size)?;
         self.sections.validate(&self.header, &self.segments)?;
         Ok(())
     }

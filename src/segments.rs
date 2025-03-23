@@ -7,6 +7,8 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::ops::Range;
 
+use crate::align_down;
+use crate::align_up;
 use crate::constants::*;
 use crate::io::*;
 use crate::other::*;
@@ -88,12 +90,12 @@ impl ProgramHeader {
         }
     }
 
-    pub fn validate(&self, header: &Header) -> Result<(), Error> {
+    pub fn validate(&self, header: &Header, page_size: u64) -> Result<(), Error> {
         for segment in self.entries.iter() {
             segment.validate(header.class)?;
         }
         self.validate_sorted()?;
-        self.validate_overlap()?;
+        self.validate_overlap(page_size)?;
         self.validate_entry_point(header.entry_point)?;
         self.validate_phdr()?;
         Ok(())
@@ -129,20 +131,22 @@ impl ProgramHeader {
         Ok(())
     }
 
-    fn validate_overlap(&self) -> Result<(), Error> {
+    fn validate_overlap(&self, page_size: u64) -> Result<(), Error> {
         let filters = [
-            |segment: &Segment| {
+            |segment: &Segment, page_size: u64| {
                 if segment.kind != SegmentKind::Loadable {
                     return None;
                 }
-                let segment_start = segment.virtual_address;
-                let segment_end = segment_start + segment.memory_size;
+                // GNU libc ld.so expands virtual address space of each segment
+                // to the nearest page boundaries.
+                let segment_start = align_down(segment.virtual_address, page_size);
+                let segment_end = align_up(segment_start + segment.memory_size, page_size);
                 if segment_start == segment_end {
                     return None;
                 }
                 Some(segment_start..segment_end)
             },
-            |segment: &Segment| {
+            |segment: &Segment, _page_size: u64| {
                 if segment.kind != SegmentKind::Loadable {
                     return None;
                 }
@@ -155,7 +159,11 @@ impl ProgramHeader {
             },
         ];
         for filter in filters.into_iter() {
-            let mut ranges = self.entries.iter().filter_map(filter).collect::<Vec<_>>();
+            let mut ranges = self
+                .entries
+                .iter()
+                .filter_map(|segment| filter(segment, page_size))
+                .collect::<Vec<_>>();
             ranges.sort_unstable_by_key(|segment| segment.start);
             for i in 1..ranges.len() {
                 let cur = &ranges[i];
