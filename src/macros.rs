@@ -103,6 +103,7 @@ macro_rules! define_infallible_enum {
             }
         }
 
+        #[cfg(test)]
         impl<'a> ::arbitrary::Arbitrary<'a> for $enum {
             fn arbitrary(u: &mut ::arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
                 let number: $int = u.arbitrary()?;

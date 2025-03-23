@@ -6,17 +6,17 @@ license.workspace = true
 
 [features]
 default = ["std"]
-std = []
+std = ["bitflags/std", "log/std", "thiserror/std"]
 
 [dependencies]
-arbitrary = { version = "1.4.1", features = ["derive"] }
-arbtest = "0.3.2"
-bitflags = "2.9.0"
-log = "0.4.26"
-thiserror = "2.0.12"
+bitflags.workspace = true
+log.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-bitflags = { version = "2.9.0", features = ["arbitrary"] }
+arbitrary = { version = "1.4.1", features = ["derive"] }
+arbtest = "0.3.2"
+bitflags = { workspace = true, features = ["arbitrary"] }
 fs-err = "3.1.0"
 walkdir = "2.5.0"
 
@@ -29,9 +29,20 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[workspace.dependencies]
+bitflags = { version = "2.9.0", default-features = false, features = [] }
+log = { version = "0.4.26", default-features = false, features = [] }
+thiserror = { version = "2.0.12", default-features = false, features = [] }
+
 [lints.clippy]
 unwrap_used = "deny"
 panic = "deny"
 
 [lints.rust]
 #missing_docs = "warn"
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.base32]
+opt-level = 3

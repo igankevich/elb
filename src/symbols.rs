@@ -6,9 +6,10 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 
 use crate::constants::*;
-use crate::io::*;
+use crate::io::v2::ElfReadV2;
 use crate::ByteOrder;
 use crate::Class;
+use crate::ElfWrite;
 use crate::Error;
 
 #[derive(Debug)]
@@ -23,57 +24,47 @@ pub struct Symbol {
 }
 
 impl Symbol {
-    pub fn from_bytes(buf: &[u8], class: Class, byte_order: ByteOrder) -> Self {
-        assert_eq!(class.symbol_len(), buf.len());
-        let word_len = class.word_len();
-        let mut slice = buf;
-        let name_offset = get_u32(slice, byte_order);
-        slice = &slice[4..];
+    pub fn read<R: ElfReadV2>(
+        mut reader: R,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<Self, Error> {
+        let name_offset = reader.read_u32(byte_order)?;
         match class {
             Class::Elf32 => {
-                let address = get_word(class, byte_order, slice);
-                slice = &slice[word_len..];
-                let size = get_u32(slice, byte_order) as u64;
-                slice = &slice[4..];
-                let info = slice[0];
-                let other = slice[1];
-                slice = &slice[2..];
-                let section_index = get_u16(slice, byte_order);
-                slice = &slice[2..];
-                assert_eq!(0, slice.len());
-                Self {
+                let address = reader.read_word(class, byte_order)?;
+                let size = reader.read_u32(byte_order)? as u64;
+                let info = reader.read_u8()?;
+                let other = reader.read_u8()?;
+                let section_index = reader.read_u16(byte_order)?;
+                Ok(Self {
                     name_offset,
                     address,
                     size,
                     section_index,
                     info,
                     other,
-                }
+                })
             }
             Class::Elf64 => {
-                let info = slice[0];
-                let other = slice[1];
-                slice = &slice[2..];
-                let section_index = get_u16(slice, byte_order);
-                slice = &slice[2..];
-                let address = get_word(class, byte_order, slice);
-                slice = &slice[word_len..];
-                let size = get_u64(slice, byte_order);
-                slice = &slice[8..];
-                assert_eq!(0, slice.len());
-                Self {
+                let info = reader.read_u8()?;
+                let other = reader.read_u8()?;
+                let section_index = reader.read_u16(byte_order)?;
+                let address = reader.read_word(class, byte_order)?;
+                let size = reader.read_u64(byte_order)?;
+                Ok(Self {
                     name_offset,
                     address,
                     size,
                     section_index,
                     info,
                     other,
-                }
+                })
             }
         }
     }
 
-    pub fn write<W: Write>(
+    pub fn write<W: ElfWrite>(
         &self,
         mut writer: W,
         class: Class,
@@ -129,7 +120,7 @@ impl SymbolTable {
             }
             let mut slice = &buffer[..n];
             for _ in 0..n / symbol_len {
-                let symbol = Symbol::from_bytes(&slice[..symbol_len], class, byte_order);
+                let symbol = Symbol::read(&slice[..symbol_len], class, byte_order)?;
                 entries.push(symbol);
                 slice = &slice[symbol_len..];
             }
@@ -191,7 +182,7 @@ mod tests {
                 .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
                 .unwrap();
             let bytes = cursor.into_inner();
-            let actual = Symbol::from_bytes(&bytes, class, byte_order);
+            let actual = Symbol::read(&bytes[..], class, byte_order).unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });
