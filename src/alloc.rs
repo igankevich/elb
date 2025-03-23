@@ -1,18 +1,21 @@
-use crate::constants::*;
-
 #[derive(Default)]
 pub struct Allocations {
     allocations: Vec<(u64, Alloc)>,
+    page_size: u64,
 }
 
 impl Allocations {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(page_size: u64) -> Self {
+        assert!(page_size > 0 && page_size.is_power_of_two());
+        Self {
+            allocations: Default::default(),
+            page_size,
+        }
     }
 
     pub fn push(&mut self, start: u64, end: u64) {
-        let start = align_down(start);
-        let end = align_up(end);
+        let start = align_down(start, self.page_size);
+        let end = align_up(end, self.page_size);
         self.allocations.push((start, Alloc::Start));
         self.allocations.push((end, Alloc::End));
     }
@@ -44,7 +47,7 @@ impl Allocations {
             if prev_counter == 0 && counter == 1 {
                 let start = self.allocations[i - 1].0;
                 if offset - start >= size {
-                    let padding = calc_padding(start, memory_offset, PAGE_SIZE)?;
+                    let padding = calc_padding(start, memory_offset, self.page_size)?;
                     let padded_size = padding.checked_add(size)?;
                     if offset - start >= padded_size {
                         let start = start.checked_add(padding)?;
@@ -53,7 +56,7 @@ impl Allocations {
                             start,
                             start + size,
                             padding,
-                            PAGE_SIZE,
+                            self.page_size,
                         );
                         return Some(start);
                     }
@@ -122,16 +125,18 @@ fn calc_padding(offset1: u64, offset2: u64, align: u64) -> Option<u64> {
     }
 }
 
-pub const fn align_down(offset: u64) -> u64 {
-    offset - offset % PAGE_SIZE
+const fn align_down(offset: u64, page_size: u64) -> u64 {
+    debug_assert!(page_size > 0 && page_size.is_power_of_two());
+    offset & !(page_size - 1)
 }
 
-pub const fn align_up(offset: u64) -> u64 {
-    let rem = offset % PAGE_SIZE;
+const fn align_up(offset: u64, page_size: u64) -> u64 {
+    debug_assert!(page_size > 0 && page_size.is_power_of_two());
+    let rem = offset & (page_size - 1);
     if rem == 0 {
         return offset;
     }
-    offset.saturating_add(PAGE_SIZE - rem)
+    offset.saturating_add(page_size - rem)
 }
 
 #[cfg(test)]
@@ -156,33 +161,105 @@ mod tests {
 
     #[test]
     fn test_alloc_memory_block() {
-        let mut allocations = Allocations::new();
+        let mut allocations = Allocations::new(4096);
         allocations.push(0, 64);
         allocations.push(1000, 2000);
         allocations.push(u64::MAX, u64::MAX);
         allocations.finish(0);
-        assert_eq!(Some(2000), allocations.alloc_memory_block(PAGE_SIZE, 1000));
+        assert_eq!(Some(2000), allocations.alloc_memory_block(4096, 1000));
     }
 
     #[test]
     fn test_align_down() {
-        assert_eq!(0, align_down(100));
-        assert_eq!(0, align_down(PAGE_SIZE - 1));
-        assert_eq!(PAGE_SIZE, align_down(PAGE_SIZE));
-        assert_eq!(PAGE_SIZE, align_down(PAGE_SIZE + 1));
-        assert_eq!(PAGE_SIZE, align_down(2 * PAGE_SIZE - 1));
-        assert_eq!(2 * PAGE_SIZE, align_down(2 * PAGE_SIZE));
+        arbtest(|u| {
+            // Test page sizes up to 2 MiB.
+            let page_size: u64 = 1_u64 << u.int_in_range(0..=21)?;
+            // Page number.
+            let i: u64 = u.int_in_range(0..=u64::MAX.div_ceil(page_size))?;
+            let offset: u64 = u.int_in_range(0..=page_size - 1)?;
+            assert_eq!(
+                if offset == 0 {
+                    i * page_size
+                } else {
+                    i.saturating_sub(1) * page_size
+                },
+                align_down(i * page_size - offset, page_size)
+            );
+            assert_eq!(i * page_size, align_down(i * page_size, page_size));
+            assert_eq!(
+                i * page_size,
+                align_down((i * page_size).saturating_add(offset), page_size)
+            );
+            assert_eq!(0, align_down(0, page_size));
+            Ok(())
+        });
     }
 
     #[test]
     fn test_align_up() {
-        assert_eq!(0, align_up(0));
-        assert_eq!(PAGE_SIZE, align_up(1));
-        assert_eq!(PAGE_SIZE, align_up(PAGE_SIZE));
-        assert_eq!(2 * PAGE_SIZE, align_up(PAGE_SIZE + 1));
-        assert_eq!(2 * PAGE_SIZE, align_up(2 * PAGE_SIZE - 1));
-        assert_eq!(2 * PAGE_SIZE, align_up(2 * PAGE_SIZE));
-        assert_eq!(3 * PAGE_SIZE, align_up(2 * PAGE_SIZE + 1));
-        assert_eq!(u64::MAX, align_up(u64::MAX));
+        arbtest(|u| {
+            // Test page sizes up to 2 MiB.
+            let page_size: u64 = 1_u64 << u.int_in_range(0..=21)?;
+            // Page number.
+            let i: u64 = u.int_in_range(0..=u64::MAX.div_ceil(page_size))?;
+            let offset: u64 = if page_size == 1 {
+                0
+            } else {
+                u.int_in_range(0..=page_size - 1)?
+            };
+            assert_eq!(
+                i * page_size,
+                align_up((i * page_size).saturating_sub(offset), page_size)
+            );
+            assert_eq!(i * page_size, align_up(i * page_size, page_size));
+            assert_eq!(
+                if offset == 0 {
+                    i * page_size
+                } else {
+                    (i + 1).checked_mul(page_size).unwrap_or(u64::MAX)
+                },
+                align_up(i * page_size + offset, page_size)
+            );
+            assert_eq!(u64::MAX, align_up(u64::MAX, page_size));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_align_down_fast() {
+        arbtest(|u| {
+            let page_size: u64 = 1_u64 << u.int_in_range(0..=21)?;
+            let offset: u64 = u.arbitrary()?;
+            assert_eq!(
+                align_down_naive(offset, page_size),
+                align_down(offset, page_size)
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_align_up_fast() {
+        arbtest(|u| {
+            let page_size: u64 = 1_u64 << u.int_in_range(1..=21)?;
+            let offset: u64 = u.arbitrary()?;
+            assert_eq!(
+                align_up_naive(offset, page_size),
+                align_up(offset, page_size)
+            );
+            Ok(())
+        });
+    }
+
+    const fn align_down_naive(offset: u64, page_size: u64) -> u64 {
+        offset - offset % page_size
+    }
+
+    const fn align_up_naive(offset: u64, page_size: u64) -> u64 {
+        let rem = offset % page_size;
+        if rem == 0 {
+            return offset;
+        }
+        offset.saturating_add(page_size - rem)
     }
 }

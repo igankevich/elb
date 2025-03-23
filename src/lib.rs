@@ -13,7 +13,7 @@ mod relocations;
 mod sections;
 mod segments;
 mod string_table;
-mod symbol_table;
+mod symbols;
 mod tables;
 pub(crate) mod validation;
 
@@ -29,5 +29,5 @@ pub use self::relocations::*;
 pub use self::sections::*;
 pub use self::segments::*;
 pub use self::string_table::*;
-pub use self::symbol_table::*;
+pub use self::symbols::*;
 pub use self::tables::*;

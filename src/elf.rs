@@ -31,9 +31,14 @@ pub struct Elf {
     pub segments: ProgramHeader,
     pub sections: SectionHeader,
     min_memory_offset: u64,
+    page_size: u64,
 }
 
 impl Elf {
+    pub fn set_page_size(&mut self, value: u64) {
+        self.page_size = value;
+    }
+
     pub fn read_unchecked<R: Read + Seek>(mut reader: R) -> Result<Self, Error> {
         let header = Header::read(&mut reader)?;
         let segments = ProgramHeader::read(&mut reader, &header)?;
@@ -51,6 +56,7 @@ impl Elf {
             segments,
             sections,
             min_memory_offset,
+            page_size: DEFAULT_PAGE_SIZE,
         })
     }
 
@@ -101,7 +107,7 @@ impl Elf {
             offset: 0,
             file_size: program_header_len,
             memory_size: program_header_len,
-            align: PAGE_SIZE,
+            align: self.page_size,
         })?;
         let phdr = &self.segments[phdr_segment_index];
         // Allocate LOAD segment to cover PHDR.
@@ -233,7 +239,7 @@ impl Elf {
                 link: 0,
                 info: 0,
                 // TODO
-                align: PAGE_SIZE,
+                align: self.page_size,
                 entry_len: 0,
             },
             &names,
@@ -258,7 +264,7 @@ impl Elf {
             offset: segment.offset,
             file_size: segment.file_size,
             memory_size: segment.memory_size,
-            align: PAGE_SIZE,
+            align: self.page_size,
         });
         self.segments.push(segment);
         // We don't write segment here since the content and the location is the same as in the
@@ -519,7 +525,7 @@ impl Elf {
                 file_size: dynstr_table_section.size,
                 memory_size: dynstr_table_section.size,
                 // TODO
-                align: PAGE_SIZE,
+                align: self.page_size,
             });
         }
         dynstr_table_section.write_out(&mut file, dynstr_table.as_ref())?;
@@ -539,7 +545,7 @@ impl Elf {
             file_size: dynamic_table_len,
             memory_size: dynamic_table_len,
             // TODO
-            align: PAGE_SIZE,
+            align: self.page_size,
         })?;
         let new_dynamic_table_virtual_address =
             self.segments[dynamic_segment_index].virtual_address;
@@ -589,7 +595,7 @@ impl Elf {
                 .map_err(|_| Error::TooBig("Section link"))?,
             info: 0,
             // TODO
-            align: PAGE_SIZE,
+            align: self.page_size,
             entry_len: DYNAMIC_ENTRY_LEN,
         });
         let load = Segment {
@@ -708,7 +714,7 @@ impl Elf {
                         link: 0,
                         info: 0,
                         // TODO
-                        align: PAGE_SIZE,
+                        align: self.page_size,
                         entry_len: 0,
                     },
                     names,
@@ -875,7 +881,7 @@ impl Elf {
                             physical_address: section.virtual_address,
                             file_size: section.size,
                             memory_size: section.size,
-                            align: PAGE_SIZE as u64,
+                            align: self.page_size as u64,
                         });
                     }
                 }
@@ -919,11 +925,11 @@ impl Elf {
 
     fn alloc_section_header(&self, size: u64) -> Option<u64> {
         let allocations = self.get_file_allocations();
-        allocations.alloc_memory_block(size, PAGE_SIZE)
+        allocations.alloc_memory_block(size, self.page_size)
     }
 
     fn get_file_allocations(&self) -> Allocations {
-        let mut allocations = Allocations::new();
+        let mut allocations = Allocations::new(self.page_size);
         allocations.extend(
             self.sections
                 .iter()
@@ -940,7 +946,7 @@ impl Elf {
     }
 
     fn alloc_memory_block(&self, size: u64, align: u64) -> Option<u64> {
-        let mut allocations = Allocations::new();
+        let mut allocations = Allocations::new(self.page_size);
         allocations.extend(
             self.sections
                 .iter()

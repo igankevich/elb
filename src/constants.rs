@@ -30,8 +30,7 @@ pub const MAX_RELA_LEN: usize = RELA_LEN_64;
 pub const SECTION_RESERVED_MIN: usize = 0xff00;
 pub const SECTION_RESERVED_MAX: usize = 0xffff;
 
-// TODO should be configurable
-pub const PAGE_SIZE: u64 = 4096;
+pub const DEFAULT_PAGE_SIZE: u64 = 4096;
 
 pub const INTERP_SECTION: &CStr = c".interp";
 pub const SHSTRTAB_SECTION: &CStr = c".shstrtab";
