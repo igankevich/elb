@@ -19,5 +19,7 @@ log = "0.4.26"
 thiserror = "2.0.12"
 
 [dev-dependencies]
+base32 = "0.5.1"
+sha2 = "0.10.8"
 tempfile = "3.18.0"
 walkdir = "2.5.0"

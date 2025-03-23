@@ -2,6 +2,7 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::io::Read;
 use std::io::Seek;
+use std::io::SeekFrom;
 use std::io::Write;
 use std::ops::Range;
 
@@ -12,6 +13,8 @@ use crate::DynamicTag;
 use crate::Error;
 use crate::Header;
 use crate::ProgramHeader;
+use crate::RelTable;
+use crate::RelaTable;
 use crate::Section;
 use crate::SectionFlags;
 use crate::SectionHeader;
@@ -20,6 +23,7 @@ use crate::Segment;
 use crate::SegmentFlags;
 use crate::SegmentKind;
 use crate::StringTable;
+use crate::SymbolTable;
 
 #[derive(Debug)]
 pub struct Elf {
@@ -97,7 +101,7 @@ impl Elf {
             offset: 0,
             file_size: program_header_len,
             memory_size: program_header_len,
-            align: PAGE_SIZE as u64,
+            align: PAGE_SIZE,
         })?;
         let phdr = &self.segments[phdr_segment_index];
         // Allocate LOAD segment to cover PHDR.
@@ -201,7 +205,7 @@ impl Elf {
             Some(INTERP_SECTION) == string
         });
         if let Some(i) = interpreter_section_index {
-            // `INTERP` segment is removed autoamtically.
+            // `INTERP` segment is removed automatically.
             self.free_section(&mut file, i, &names)?;
         }
         Ok(())
@@ -229,7 +233,7 @@ impl Elf {
                 link: 0,
                 info: 0,
                 // TODO
-                align: PAGE_SIZE as u64,
+                align: PAGE_SIZE,
                 entry_len: 0,
             },
             &names,
@@ -254,7 +258,7 @@ impl Elf {
             offset: segment.offset,
             file_size: segment.file_size,
             memory_size: segment.memory_size,
-            align: PAGE_SIZE as u64,
+            align: PAGE_SIZE,
         });
         self.segments.push(segment);
         // We don't write segment here since the content and the location is the same as in the
@@ -328,6 +332,69 @@ impl Elf {
             _ => {}
         }
         Ok(())
+    }
+
+    pub fn read_symbol_table<R: Read + Seek>(
+        &self,
+        mut file: R,
+    ) -> Result<Option<(SymbolTable, usize)>, Error> {
+        let names = self.read_section_names(&mut file)?;
+        let Some(i) = self.sections.iter().position(|section| {
+            section.kind == SectionKind::SymbolTable
+                && Some(SYMTAB_SECTION) == names.get_string(section.name_offset as usize)
+        }) else {
+            return Ok(None);
+        };
+        let section = &self.sections[i];
+        file.seek(SeekFrom::Start(section.offset))?;
+        let table = SymbolTable::read(
+            file.take(section.size),
+            self.header.class,
+            self.header.byte_order,
+        )?;
+        Ok(Some((table, i)))
+    }
+
+    pub fn read_rel_table_for<R: Read + Seek>(
+        &self,
+        mut file: R,
+        section_index: u32,
+    ) -> Result<Option<(RelTable, usize)>, Error> {
+        let Some(i) = self.sections.iter().position(|section| {
+            use SectionKind::*;
+            matches!(section.kind, RelTable) && section.link == section_index
+        }) else {
+            return Ok(None);
+        };
+        let section = &self.sections[i];
+        file.seek(SeekFrom::Start(section.offset))?;
+        let table = RelTable::read(
+            file.take(section.size),
+            self.header.class,
+            self.header.byte_order,
+        )?;
+        Ok(Some((table, i)))
+    }
+
+    pub fn read_rela_table_for<R: Read + Seek>(
+        &self,
+        mut file: R,
+        section_index: u32,
+    ) -> Result<Option<(RelaTable, usize)>, Error> {
+        let Some(i) = self.sections.iter().position(|section| {
+            use SectionKind::*;
+            matches!(section.kind, RelaTable) && section.link == section_index
+        }) else {
+            return Ok(None);
+        };
+        let section = &self.sections[i];
+        file.seek(SeekFrom::Start(section.offset))?;
+        let table = RelaTable::read(
+            file.take(section.size),
+            self.header.class,
+            self.header.byte_order,
+        )?;
+        Ok(Some((table, i)))
     }
 
     pub fn read_dynamic_table<R: Read + Seek>(&self, mut file: R) -> Result<DynamicTable, Error> {
@@ -427,6 +494,7 @@ impl Elf {
         };
         log::trace!("Found `.dynstr` table");
         log::trace!("dynstr table index {:?}", dynstr_table_index);
+        let symbol_table_result = self.read_symbol_table(&mut file)?;
         let (value_offset, dynstr_table_index) = self.get_string_offset(
             &mut file,
             value,
@@ -451,7 +519,7 @@ impl Elf {
                 file_size: dynstr_table_section.size,
                 memory_size: dynstr_table_section.size,
                 // TODO
-                align: PAGE_SIZE as u64,
+                align: PAGE_SIZE,
             });
         }
         dynstr_table_section.write_out(&mut file, dynstr_table.as_ref())?;
@@ -471,7 +539,7 @@ impl Elf {
             file_size: dynamic_table_len,
             memory_size: dynamic_table_len,
             // TODO
-            align: PAGE_SIZE as u64,
+            align: PAGE_SIZE,
         })?;
         let new_dynamic_table_virtual_address =
             self.segments[dynamic_segment_index].virtual_address;
@@ -483,11 +551,28 @@ impl Elf {
                 new_dynamic_table_virtual_address
             );
         }
+        if let Some((mut symbol_table, symbol_table_section_index)) = symbol_table_result {
+            let mut changed = false;
+            for symbol in symbol_table.iter_mut() {
+                if symbol.address == old_dynamic_table_virtual_address {
+                    log::trace!(
+                        "Changed memory offset of the _DYNAMIC symbol from {:#x} to {:#x}",
+                        symbol.address,
+                        new_dynamic_table_virtual_address
+                    );
+                    symbol.address = new_dynamic_table_virtual_address;
+                    changed = true;
+                }
+            }
+            if changed {
+                let section = &self.sections[symbol_table_section_index];
+                file.seek(SeekFrom::Start(section.offset))?;
+                symbol_table.write(&mut file, self.header.class, self.header.byte_order)?;
+                log::trace!("Updated symbol table");
+            }
+        }
         // We don't write section here since the content and the location is the same as in the
         // `.dynamic`. segment.
-        self.sections.retain(|section| {
-            Some(DYNAMIC_SECTION) != names.get_string(section.name_offset as usize)
-        });
         let name_offset = self.get_name_offset(&mut file, DYNAMIC_SECTION, &mut names)?;
         let segment = &self.segments[dynamic_segment_index];
         self.sections.add(Section {
@@ -504,7 +589,7 @@ impl Elf {
                 .map_err(|_| Error::TooBig("Section link"))?,
             info: 0,
             // TODO
-            align: PAGE_SIZE as u64,
+            align: PAGE_SIZE,
             entry_len: DYNAMIC_ENTRY_LEN,
         });
         let load = Segment {
@@ -623,7 +708,7 @@ impl Elf {
                         link: 0,
                         info: 0,
                         // TODO
-                        align: PAGE_SIZE as u64,
+                        align: PAGE_SIZE,
                         entry_len: 0,
                     },
                     names,
@@ -834,7 +919,7 @@ impl Elf {
 
     fn alloc_section_header(&self, size: u64) -> Option<u64> {
         let allocations = self.get_file_allocations();
-        allocations.alloc_memory_block(size, PAGE_SIZE as u64)
+        allocations.alloc_memory_block(size, PAGE_SIZE)
     }
 
     fn get_file_allocations(&self) -> Allocations {

@@ -54,102 +54,97 @@ impl DynamicLoader {
     pub fn resolve_dependencies<P: AsRef<Path>>(
         &self,
         file: P,
-    ) -> Result<Vec<PathBuf>, LoaderError> {
+    ) -> Result<(Elf, Vec<PathBuf>), LoaderError> {
         let mut file_names: Vec<CString> = Vec::new();
         let mut dependencies: Vec<PathBuf> = Vec::new();
-        let mut queue = VecDeque::new();
-        let file = fs_err::canonicalize(file.as_ref())?;
-        queue.push_back(file);
-        while let Some(dependent_file) = queue.pop_front() {
-            let mut file = File::open(&dependent_file)?;
-            let elf = Elf::read(&mut file)?;
-            let dynstr_table = elf.read_dynamic_string_table(&mut file)?;
-            let dynamic_table = elf.read_dynamic_table(&mut file)?;
-            let interpreter = elf
-                .read_interpreter(&mut file)?
-                .map(|c_str| PathBuf::from(OsStr::from_bytes(c_str.to_bytes())));
-            let mut search_paths = Vec::new();
-            for key in [DynamicTag::RpathOffset, DynamicTag::RunPathOffset] {
-                for dir in dynamic_table
-                    .iter()
-                    .filter_map(|(tag, value)| {
-                        if *tag == key {
-                            dynstr_table.get_string(*value as usize)
-                        } else {
-                            None
-                        }
-                    })
-                    .flat_map(|rpath| std::env::split_paths(OsStr::from_bytes(rpath.to_bytes())))
-                {
-                    let dir = interpolate(&dir, &dependent_file, &elf);
-                    if log_enabled!(Trace) {
-                        let what = match key {
-                            DynamicTag::RpathOffset => "rpath",
-                            DynamicTag::RunPathOffset => "runpath",
-                            _ => "library path",
-                        };
-                        trace!("Found {} {:?} in {:?}", what, dir, dependent_file);
+        let dependent_file = file.as_ref();
+        let mut file = File::open(dependent_file)?;
+        let elf = Elf::read(&mut file)?;
+        let dynstr_table = elf.read_dynamic_string_table(&mut file)?;
+        let dynamic_table = elf.read_dynamic_table(&mut file)?;
+        let interpreter = elf
+            .read_interpreter(&mut file)?
+            .map(|c_str| PathBuf::from(OsStr::from_bytes(c_str.to_bytes())));
+        let mut search_paths = Vec::new();
+        for key in [DynamicTag::RunPathOffset, DynamicTag::RpathOffset] {
+            for dir in dynamic_table
+                .iter()
+                .filter_map(|(tag, value)| {
+                    if *tag == key {
+                        dynstr_table.get_string(*value as usize)
+                    } else {
+                        None
                     }
-                    search_paths.push(dir);
-                }
-            }
-            if let Some(interpreter) = interpreter.as_ref() {
-                if let Some(file_name) = interpreter.file_name() {
-                    trace!("Resolved {:?} as {:?}", file_name, interpreter);
-                    if !dependencies.contains(interpreter) {
-                        let mut bytes = file_name.as_bytes().to_vec();
-                        bytes.push(0_u8);
-                        let c_string = CString::from_vec_with_nul(bytes).expect("Added NUL above");
-                        file_names.push(c_string);
-                        dependencies.push(interpreter.clone());
-                    }
-                }
-            }
-            search_paths.extend(self.system_search_paths.clone());
-            'outer: for (tag, value) in dynamic_table.iter() {
-                if *tag != DynamicTag::Needed {
-                    continue;
-                }
-                let Some(dep_name) = dynstr_table.get_string(*value as usize) else {
-                    continue;
-                };
-                trace!("{:?} depends on {:?}", dependent_file, dep_name);
-                for dir in search_paths.iter() {
-                    let path = dir.join(OsStr::from_bytes(dep_name.to_bytes()));
-                    let mut file = match File::open(&path) {
-                        Ok(file) => file,
-                        Err(ref e) if e.kind() == ErrorKind::NotFound => continue,
-                        Err(e) => {
-                            warn!("Failed to open {path:?}: {e}");
-                            continue;
-                        }
+                })
+                .flat_map(|rpath| std::env::split_paths(OsStr::from_bytes(rpath.to_bytes())))
+            {
+                let dir = interpolate(&dir, dependent_file, &elf);
+                if log_enabled!(Trace) {
+                    let what = match key {
+                        DynamicTag::RpathOffset => "rpath",
+                        DynamicTag::RunPathOffset => "runpath",
+                        _ => "library path",
                     };
-                    let dep = match Elf::read_unchecked(&mut file) {
-                        Ok(dep) => dep,
-                        Err(elfie::Error::NotElf) => continue,
-                        Err(e) => return Err(e.into()),
-                    };
-                    if dep.header.byte_order == elf.header.byte_order
-                        && dep.header.class == elf.header.class
-                        && dep.header.machine == elf.header.machine
-                    {
-                        trace!("Resolved {:?} as {:?}", dep_name, path);
-                        if !dependencies.contains(&path) {
-                            dependencies.push(path.clone());
-                            queue.push_back(path);
-                        }
-                        continue 'outer;
-                    }
+                    trace!("Found {} {:?} in {:?}", what, dir, dependent_file);
                 }
-                trace!("Search paths {:#?}", search_paths);
-                trace!("Resolved file names {:#?}", file_names);
-                return Err(LoaderError::FailedToResolve(
-                    dep_name.into(),
-                    dependent_file,
-                ));
+                search_paths.push(dir);
             }
         }
-        Ok(dependencies)
+        if let Some(interpreter) = interpreter.as_ref() {
+            if let Some(file_name) = interpreter.file_name() {
+                trace!("Resolved {:?} as {:?}", file_name, interpreter);
+                if !dependencies.contains(interpreter) {
+                    let mut bytes = file_name.as_bytes().to_vec();
+                    bytes.push(0_u8);
+                    let c_string = CString::from_vec_with_nul(bytes).expect("Added NUL above");
+                    file_names.push(c_string);
+                    dependencies.push(interpreter.clone());
+                }
+            }
+        }
+        search_paths.extend(self.system_search_paths.clone());
+        'outer: for (tag, value) in dynamic_table.iter() {
+            if *tag != DynamicTag::Needed {
+                continue;
+            }
+            let Some(dep_name) = dynstr_table.get_string(*value as usize) else {
+                continue;
+            };
+            trace!("{:?} depends on {:?}", dependent_file, dep_name);
+            for dir in search_paths.iter() {
+                let path = dir.join(OsStr::from_bytes(dep_name.to_bytes()));
+                let mut file = match File::open(&path) {
+                    Ok(file) => file,
+                    Err(ref e) if e.kind() == ErrorKind::NotFound => continue,
+                    Err(e) => {
+                        warn!("Failed to open {path:?}: {e}");
+                        continue;
+                    }
+                };
+                let dep = match Elf::read_unchecked(&mut file) {
+                    Ok(dep) => dep,
+                    Err(elfie::Error::NotElf) => continue,
+                    Err(e) => return Err(e.into()),
+                };
+                if dep.header.byte_order == elf.header.byte_order
+                    && dep.header.class == elf.header.class
+                    && dep.header.machine == elf.header.machine
+                {
+                    trace!("Resolved {:?} as {:?}", dep_name, path);
+                    if !dependencies.contains(&path) {
+                        dependencies.push(path.clone());
+                    }
+                    continue 'outer;
+                }
+            }
+            trace!("Search paths {:#?}", search_paths);
+            trace!("Resolved file names {:#?}", file_names);
+            return Err(LoaderError::FailedToResolve(
+                dep_name.into(),
+                dependent_file.to_path_buf(),
+            ));
+        }
+        Ok((elf, dependencies))
     }
 }
 
@@ -285,6 +280,8 @@ mod tests {
     use std::ffi::CStr;
     use std::ffi::OsString;
     use std::fs::Permissions;
+    use std::io::Seek;
+    use std::io::SeekFrom;
     use std::os::unix::ffi::OsStringExt;
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::fs::PermissionsExt;
@@ -318,38 +315,45 @@ mod tests {
                 };
                 let path = entry.path();
                 if !path.is_file() {
+                    // Not a regular file or a symlink to a regular file.
                     continue;
                 }
                 let Ok(path) = path.canonicalize() else {
                     continue;
                 };
                 if !visited.insert(path.clone()) {
+                    // Already visited.
+                    continue;
+                }
+                let metadata = fs_err::metadata(&path).unwrap();
+                if metadata.mode() & 0o7000 != 0 {
+                    // Ignore setuid files.
+                    continue;
+                }
+                // TODO check arch
+                let Some(file_name) = path.file_name() else {
+                    continue;
+                };
+                // TODO
+                //if file_name.to_str().unwrap_or_default() != "cargo-deny" {
+                //    continue;
+                //}
+                if NOT_WORKING.contains(&file_name.to_str().unwrap_or_default()) {
+                    // Known to not work.
+                    continue;
+                }
+                if file_name.as_bytes().starts_with(b"lib")
+                    && file_name
+                        .as_bytes()
+                        .windows(3)
+                        .any(|window| window == b".so")
+                {
                     continue;
                 }
                 //eprintln!("Reading {:?}", path);
                 match loader.resolve_dependencies(&path) {
-                    Ok(dependencies) => {
-                        let metadata = fs_err::metadata(&path).unwrap();
-                        if metadata.mode() & 0o7000 != 0 {
-                            // Ignore setuid files.
-                            continue;
-                        }
-                        // TODO check arch
-                        let Some(file_name) = path.file_name() else {
-                            continue;
-                        };
-                        if NOT_WORKING.contains(&file_name.to_str().unwrap_or_default()) {
-                            // Known to not work.
-                            continue;
-                        }
-                        let file_name = file_name.as_bytes();
-                        if file_name.starts_with(b"lib")
-                            && file_name.windows(3).any(|window| window == b".so")
-                        {
-                            continue;
-                        }
+                    Ok((elf, dependencies)) => {
                         let mut file = File::open(&path).unwrap();
-                        let elf = Elf::read(&mut file).unwrap();
                         let Ok(Some(_)) = elf.read_interpreter(&mut file) else {
                             continue;
                         };
@@ -370,6 +374,7 @@ mod tests {
                             working_arg = Some(arg);
                             break;
                         }
+                        let mut copied_files_hashes = HashSet::new();
                         if let Some(arg) = working_arg {
                             let arg = OsStr::from_bytes(arg.to_bytes());
                             let expected_result =
@@ -381,13 +386,61 @@ mod tests {
                             let tmpdir = TempDir::with_prefix("elfie-test-").unwrap();
                             let workdir = tmpdir.path();
                             fs_err::create_dir_all(workdir).unwrap();
-                            for file in dependencies.iter() {
-                                eprintln!("Dependency {:?}", file);
-                                let file_name = file.file_name().unwrap();
-                                let new_file = workdir.join(file_name);
-                                fs_err::copy(file, &new_file).unwrap();
+                            let mut queue = VecDeque::new();
+                            queue.extend(dependencies.iter().cloned());
+                            while let Some(dep_file) = queue.pop_front() {
+                                eprintln!("Dependency {:?}", dep_file);
+                                let file_hash = hash_file(&dep_file);
+                                if !copied_files_hashes.insert(file_hash.clone()) {
+                                    continue;
+                                }
+                                let file_name = dep_file.file_name().unwrap();
+                                let new_dir = workdir.join(&file_hash);
+                                fs_err::create_dir_all(&new_dir).unwrap();
+                                let new_file = new_dir.join(file_name);
+                                fs_err::copy(&dep_file, &new_file).unwrap();
                                 fs_err::set_permissions(&new_file, Permissions::from_mode(0o755))
                                     .unwrap();
+                                let (mut elf, _deps) =
+                                    loader.resolve_dependencies(&dep_file).unwrap();
+                                let mut file = OpenOptions::new()
+                                    .read(true)
+                                    .write(true)
+                                    .open(&new_file)
+                                    .unwrap();
+                                let dynamic_table = elf.read_dynamic_table(&mut file).unwrap();
+                                if !dynamic_table
+                                    .iter()
+                                    .any(|(tag, _)| *tag == DynamicTag::Needed)
+                                {
+                                    // Statically linked.
+                                    continue;
+                                }
+                                elf.remove_interpreter(&mut file).unwrap();
+                                /*
+                                let run_path = {
+                                    let mut bytes = Vec::new();
+                                    for dep in deps.into_iter() {
+                                        if !bytes.is_empty() {
+                                            bytes.push(b':');
+                                        }
+                                        let file_hash = hash_file(&dep);
+                                        bytes.extend_from_slice(workdir.as_os_str().as_bytes());
+                                        bytes.push(b'/');
+                                        bytes.extend_from_slice(file_hash.as_bytes());
+                                        queue.push_back(dep);
+                                    }
+                                    bytes.push(0_u8);
+                                    CString::from_vec_with_nul(bytes).unwrap()
+                                };
+                                elf.set_dynamic_c_str(
+                                    &mut file,
+                                    DynamicTag::RunPathOffset,
+                                    &run_path,
+                                )
+                                .unwrap();
+                                */
+                                elf.write(&mut file).unwrap();
                             }
                             let new_path = workdir.join(path.file_name().unwrap());
                             fs_err::copy(&path, &new_path).unwrap();
@@ -402,7 +455,10 @@ mod tests {
                             let interpreter = elf.read_interpreter(&mut file).unwrap().unwrap();
                             let interpreter: PathBuf =
                                 OsString::from_vec(interpreter.into_bytes()).into();
-                            let new_interpreter = workdir.join(interpreter.file_name().unwrap());
+                            let interpreter_hash = hash_file(&interpreter);
+                            let new_interpreter = workdir
+                                .join(&interpreter_hash)
+                                .join(interpreter.file_name().unwrap());
                             eprintln!("New interpreter {:?}", new_interpreter);
                             let mut new_interpreter = new_interpreter.into_os_string();
                             new_interpreter.push("\0");
@@ -411,12 +467,26 @@ mod tests {
                                 CStr::from_bytes_with_nul(new_interpreter.as_bytes()).unwrap(),
                             )
                             .unwrap();
+                            elf.write(&mut file).unwrap();
+                            file.seek(SeekFrom::Start(0)).unwrap();
+                            let mut elf = Elf::read(&mut file).unwrap();
                             let run_path = {
-                                let mut bytes = workdir.as_os_str().as_bytes().to_vec();
+                                let mut bytes = Vec::new();
+                                for dep in dependencies.into_iter() {
+                                    if !bytes.is_empty() {
+                                        bytes.push(b':');
+                                    }
+                                    let file_hash = hash_file(&dep);
+                                    bytes.extend_from_slice(workdir.as_os_str().as_bytes());
+                                    bytes.push(b'/');
+                                    bytes.extend_from_slice(file_hash.as_bytes());
+                                }
                                 bytes.push(0_u8);
                                 CString::from_vec_with_nul(bytes).unwrap()
                             };
-                            elf.set_dynamic_c_str(&mut file, DynamicTag::RunPathOffset, &run_path)
+                            elf.remove_dynamic(&mut file, DynamicTag::RunPathOffset)
+                                .unwrap();
+                            elf.set_dynamic_c_str(&mut file, DynamicTag::RpathOffset, &run_path)
                                 .unwrap();
                             elf.write(&mut file).unwrap();
                             drop(file);
@@ -437,6 +507,7 @@ mod tests {
                                     workdir
                                 );
                             }
+                            eprintln!("SUCCESS {:?}", path);
                         }
                     }
                     Err(LoaderError::Elf(elfie::Error::NotElf)) => continue,
@@ -446,6 +517,16 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn hash_file<P: AsRef<Path>>(path: P) -> String {
+        use base32::Alphabet;
+        use sha2::Digest;
+        let mut file = File::open(path.as_ref()).unwrap();
+        let mut hasher = sha2::Sha256::new();
+        std::io::copy(&mut file, &mut hasher).unwrap();
+        let hash = hasher.finalize();
+        base32::encode(Alphabet::Crockford, &hash[..]).to_lowercase()
     }
 
     fn append_paths_from_env(var_name: &str, paths: &mut Vec<PathBuf>) {
@@ -480,17 +561,17 @@ mod tests {
         // qt/plugins needs to be copied to RUNPATH
         "scribus",
         // SIGSEGV, garbled `ldd` output
-        "convco",
-        "cargo-sqlx",
-        "mdbook-linkcheck",
-        "cargo-msrv",
-        "sqlx",
-        "cargo-about",
+        //"convco",           // working
+        //"cargo-sqlx",       // working
+        //"mdbook-linkcheck", // working
+        //"cargo-msrv",       // working
+        //"sqlx",             // working
+        //"cargo-about",      // working
         "cargo-deny",
-        "darktable-rs-identify",
-        "chromium",
+        //"darktable-rs-identify", // working
+        //"chromium",              // working
+        //"chromedriver",          // working
         // no --version arg
         "FBReader",
-        "chromedriver",
     ];
 }

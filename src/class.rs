@@ -38,6 +38,27 @@ impl Class {
         }
     }
 
+    pub const fn symbol_len(self) -> usize {
+        match self {
+            Self::Elf32 => SYMBOL_LEN_32,
+            Self::Elf64 => SYMBOL_LEN_64,
+        }
+    }
+
+    pub const fn rel_len(self) -> usize {
+        match self {
+            Self::Elf32 => REL_LEN_32,
+            Self::Elf64 => REL_LEN_64,
+        }
+    }
+
+    pub const fn rela_len(self) -> usize {
+        match self {
+            Self::Elf32 => RELA_LEN_32,
+            Self::Elf64 => RELA_LEN_64,
+        }
+    }
+
     pub const fn word_max(self) -> u64 {
         match self {
             Self::Elf32 => u32::MAX as u64,

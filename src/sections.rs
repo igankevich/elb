@@ -430,7 +430,7 @@ mod tests {
             for _ in 0..num_entries {
                 entries.push(Section::arbitrary(u, class)?);
             }
-            Ok(SectionHeader { entries })
+            Ok(Self { entries })
         }
     }
 

@@ -11,6 +11,8 @@ impl Allocations {
     }
 
     pub fn push(&mut self, start: u64, end: u64) {
+        let start = align_down(start);
+        let end = align_up(end);
         self.allocations.push((start, Alloc::Start));
         self.allocations.push((end, Alloc::End));
     }
@@ -42,7 +44,7 @@ impl Allocations {
             if prev_counter == 0 && counter == 1 {
                 let start = self.allocations[i - 1].0;
                 if offset - start >= size {
-                    let padding = calc_padding(start, memory_offset, PAGE_SIZE as u64)?;
+                    let padding = calc_padding(start, memory_offset, PAGE_SIZE)?;
                     let padded_size = padding.checked_add(size)?;
                     if offset - start >= padded_size {
                         let start = start.checked_add(padding)?;
@@ -120,6 +122,18 @@ fn calc_padding(offset1: u64, offset2: u64, align: u64) -> Option<u64> {
     }
 }
 
+pub const fn align_down(offset: u64) -> u64 {
+    offset - offset % PAGE_SIZE
+}
+
+pub const fn align_up(offset: u64) -> u64 {
+    let rem = offset % PAGE_SIZE;
+    if rem == 0 {
+        return offset;
+    }
+    offset.saturating_add(PAGE_SIZE - rem)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,6 +161,28 @@ mod tests {
         allocations.push(1000, 2000);
         allocations.push(u64::MAX, u64::MAX);
         allocations.finish(0);
-        assert_eq!(Some(2000), allocations.alloc_memory_block(4096, 1000));
+        assert_eq!(Some(2000), allocations.alloc_memory_block(PAGE_SIZE, 1000));
+    }
+
+    #[test]
+    fn test_align_down() {
+        assert_eq!(0, align_down(100));
+        assert_eq!(0, align_down(PAGE_SIZE - 1));
+        assert_eq!(PAGE_SIZE, align_down(PAGE_SIZE));
+        assert_eq!(PAGE_SIZE, align_down(PAGE_SIZE + 1));
+        assert_eq!(PAGE_SIZE, align_down(2 * PAGE_SIZE - 1));
+        assert_eq!(2 * PAGE_SIZE, align_down(2 * PAGE_SIZE));
+    }
+
+    #[test]
+    fn test_align_up() {
+        assert_eq!(0, align_up(0));
+        assert_eq!(PAGE_SIZE, align_up(1));
+        assert_eq!(PAGE_SIZE, align_up(PAGE_SIZE));
+        assert_eq!(2 * PAGE_SIZE, align_up(PAGE_SIZE + 1));
+        assert_eq!(2 * PAGE_SIZE, align_up(2 * PAGE_SIZE - 1));
+        assert_eq!(2 * PAGE_SIZE, align_up(2 * PAGE_SIZE));
+        assert_eq!(3 * PAGE_SIZE, align_up(2 * PAGE_SIZE + 1));
+        assert_eq!(u64::MAX, align_up(u64::MAX));
     }
 }

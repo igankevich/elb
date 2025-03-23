@@ -269,7 +269,7 @@ fn check(file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
 
 fn deps(args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
     let loader = DynamicLoader::from_rootfs_dir(args.root)?;
-    let dependencies = loader.resolve_dependencies(args.file)?;
+    let (_, dependencies) = loader.resolve_dependencies(args.file)?;
     for dep in dependencies.iter() {
         println!("{}", dep.display());
     }
