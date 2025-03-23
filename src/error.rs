@@ -2,7 +2,9 @@ use thiserror::Error;
 
 use crate::SectionKind;
 
+/// ELF-specific error.
 #[derive(Error, Debug)]
+#[allow(missing_docs)]
 pub enum Error {
     #[error("Not an ELF file")]
     NotElf,

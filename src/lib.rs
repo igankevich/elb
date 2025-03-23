@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 mod alloc;
 mod byte_order;
 mod class;

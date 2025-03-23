@@ -13,10 +13,13 @@ use crate::Class;
 use crate::Error;
 use crate::FileKind;
 
+/// ELF header.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Header {
+    /// Bitness.
     pub class: Class,
+    /// Data format.
     pub byte_order: ByteOrder,
     pub os_abi: u8,
     pub abi_version: u8,

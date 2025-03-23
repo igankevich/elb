@@ -4,8 +4,10 @@ use crate::define_specific_enum;
 use crate::Error;
 
 define_specific_enum! {
+    "ELF file type.",
     FileKind, u16,
     InvalidFileKind,
+    file_kind_tests,
     (None, 0),
     (Relocatable, 1),
     (Executable, 2),
@@ -16,14 +18,17 @@ define_specific_enum! {
 }
 
 impl FileKind {
+    /// Cast to `u16`.
     pub const fn as_u16(self) -> u16 {
         self.as_number()
     }
 }
 
 define_specific_enum! {
+    "Segment type.",
     SegmentKind, u32,
     InvalidSegmentKind,
+    segment_kind_tests,
     (Null, 0),
     (Loadable, 1),
     (Dynamic, 2),
@@ -37,6 +42,7 @@ define_specific_enum! {
 }
 
 impl SegmentKind {
+    /// Cast to `u32`.
     pub const fn as_u32(self) -> u32 {
         self.as_number()
     }
@@ -52,8 +58,10 @@ bitflags! {
 }
 
 define_specific_enum! {
+    "Dynamic table tag.",
     DynamicTag, u32,
     InvalidDynamicEntryKind,
+    dynamic_tag_tests,
     (Null, 0),
     (Needed, 1),
     (PltRelSize, 2),
@@ -98,6 +106,7 @@ define_specific_enum! {
 }
 
 impl DynamicTag {
+    /// Cast to `u32`.
     pub const fn as_u32(self) -> u32 {
         self.as_number()
     }
@@ -114,8 +123,10 @@ impl TryFrom<u64> for DynamicTag {
 }
 
 define_specific_enum! {
+    "Section type.",
     SectionKind, u32,
     InvalidSectionKind,
+    section_kind_tests,
     (Null, 0),
     (ProgramData, 1),
     (SymbolTable, 2),
@@ -140,6 +151,7 @@ define_specific_enum! {
 }
 
 impl SectionKind {
+    /// Cast to `u32`.
     pub const fn as_u32(self) -> u32 {
         self.as_number()
     }

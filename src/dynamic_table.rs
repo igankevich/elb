@@ -7,6 +7,7 @@ use crate::Class;
 use crate::DynamicTag;
 use crate::Error;
 
+/// Dynamic linking information.
 #[derive(Default, Debug)]
 pub struct DynamicTable {
     entries: Vec<(DynamicTag, u64)>,

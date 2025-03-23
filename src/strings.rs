@@ -1,13 +1,22 @@
 use std::ffi::CStr;
 
+/// A table that stores NUL-terminated strings.
+///
+/// Always starts and ends with a NUL byte.
 pub struct StringTable(Vec<u8>);
 
 impl StringTable {
+    /// Create an empty table.
     pub fn new() -> Self {
         // String tables always start and end with a NUL byte.
         Self(vec![0])
     }
 
+    /// Insert new string into the table.
+    ///
+    /// Does nothing if the string is already in the table.
+    ///
+    /// Returns the offset at which you can find the string.
     pub fn insert(&mut self, string: &CStr) -> usize {
         if let Some(offset) = self.get_offset(string) {
             return offset;
@@ -18,6 +27,9 @@ impl StringTable {
         offset
     }
 
+    /// Get the offset of the string in the table.
+    ///
+    /// Returns `None` if the string isn't present in the table.
     pub fn get_offset(&self, string: &CStr) -> Option<usize> {
         debug_assert!(!self.0.is_empty());
         let string = string.to_bytes_with_nul();
@@ -36,17 +48,24 @@ impl StringTable {
         None
     }
 
+    /// Get a reference to a string at `offset`.
+    ///
+    /// Returns `None` if the offset is out-of-bounds.
     pub fn get_string(&self, offset: usize) -> Option<&CStr> {
         let c_str_bytes = self.0.get(offset..)?;
         CStr::from_bytes_until_nul(c_str_bytes).ok()
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
-        self.0.as_slice()
-    }
-
+    /// Check that the table contains no strings.
     pub fn is_empty(&self) -> bool {
         self.0.iter().all(|b| *b == 0)
+    }
+
+    /// Get the underlying byte slice.
+    ///
+    /// The slice is never empty.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_slice()
     }
 
     /// Get the underlying vector.

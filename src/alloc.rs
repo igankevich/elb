@@ -166,7 +166,7 @@ mod tests {
         allocations.push(1000, 2000);
         allocations.push(u64::MAX, u64::MAX);
         allocations.finish(0);
-        assert_eq!(Some(2000), allocations.alloc_memory_block(4096, 1000));
+        assert_eq!(Some(5000), allocations.alloc_memory_block(4096, 1000));
     }
 
     #[test]

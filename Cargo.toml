@@ -28,3 +28,6 @@ license = "MIT OR Apache-2.0"
 [lints.clippy]
 unwrap_used = "deny"
 panic = "deny"
+
+[lints.rust]
+#missing_docs = "warn"

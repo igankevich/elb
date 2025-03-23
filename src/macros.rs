@@ -1,14 +1,17 @@
 macro_rules! define_specific_enum {
     {
-        $enum:ident,
-        $int:ident,
-        $error:ident,
-        $(($name:ident, $value:expr),)*
-        $(Range($name2:ident ($low:expr, $high:expr)),)*
-        $(Other($name3:ident))*
+        $doc: literal,
+        $enum: ident,
+        $int: ident,
+        $error: ident,
+        $tests: ident,
+        $(($name: ident, $value: expr),)*
+        $(Range($name2: ident ($low: expr, $high: expr)),)*
+        $(Other($name3: ident))*
     } => {
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
         #[repr($int)]
+        #[doc = $doc]
         pub enum $enum {
             $( $name = $value, )*
             $( $name2($int), )*
@@ -39,14 +42,29 @@ macro_rules! define_specific_enum {
         }
 
         #[cfg(test)]
-        impl<'a> arbitrary::Arbitrary<'a> for $enum {
-            fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-                loop {
-                    let number: $int = u.arbitrary()?;
-                    if let Ok(value) = $enum::try_from(number) {
-                        break Ok(value);
+        mod $tests {
+            use super::*;
+            use ::arbtest::arbtest;
+
+            impl<'a> ::arbitrary::Arbitrary<'a> for $enum {
+                fn arbitrary(u: &mut ::arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+                    loop {
+                        let number: $int = u.arbitrary()?;
+                        if let Ok(value) = $enum::try_from(number) {
+                            break Ok(value);
+                        }
                     }
                 }
+            }
+
+            #[test]
+            fn test_symmetry() {
+                arbtest(|u| {
+                    let expected: $enum = u.arbitrary()?;
+                    let actual: $enum = expected.as_number().try_into().unwrap();
+                    assert_eq!(expected, actual);
+                    Ok(())
+                });
             }
         }
     };

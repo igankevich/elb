@@ -1,15 +1,19 @@
 use crate::constants::*;
 use crate::Error;
 
+/// Architecture.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[repr(u8)]
 pub enum Class {
+    /// 32-bit.
     Elf32 = 1,
+    /// 64-bit.
     Elf64 = 2,
 }
 
 impl Class {
+    /// Word size in bytes.
     pub const fn word_len(self) -> usize {
         match self {
             Self::Elf32 => 4,
@@ -17,6 +21,7 @@ impl Class {
         }
     }
 
+    /// Header size in bytes.
     pub const fn header_len(self) -> u16 {
         match self {
             Self::Elf32 => HEADER_LEN_32 as u16,
@@ -24,6 +29,7 @@ impl Class {
         }
     }
 
+    /// Segment metadata size in bytes.
     pub const fn segment_len(self) -> u16 {
         match self {
             Self::Elf32 => SEGMENT_LEN_32 as u16,
@@ -31,6 +37,7 @@ impl Class {
         }
     }
 
+    /// Section metadata size in bytes.
     pub const fn section_len(self) -> u16 {
         match self {
             Self::Elf32 => SECTION_LEN_32 as u16,
@@ -38,6 +45,7 @@ impl Class {
         }
     }
 
+    /// Symbol metadata size in bytes.
     pub const fn symbol_len(self) -> usize {
         match self {
             Self::Elf32 => SYMBOL_LEN_32,
@@ -45,6 +53,7 @@ impl Class {
         }
     }
 
+    /// Relocation without addend metadata size in bytes.
     pub const fn rel_len(self) -> usize {
         match self {
             Self::Elf32 => REL_LEN_32,
@@ -52,6 +61,7 @@ impl Class {
         }
     }
 
+    /// Relocation with addend metadata size in bytes.
     pub const fn rela_len(self) -> usize {
         match self {
             Self::Elf32 => RELA_LEN_32,
@@ -59,6 +69,7 @@ impl Class {
         }
     }
 
+    /// Maximum unsigned integer a word can store.
     pub const fn word_max(self) -> u64 {
         match self {
             Self::Elf32 => u32::MAX as u64,
