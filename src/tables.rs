@@ -269,6 +269,7 @@ impl SegmentKind {
 }
 
 bitflags! {
+    /// Segment flags.
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
     pub struct SegmentFlags: u32 {
         const EXECUTABLE = 1 << 0;
@@ -378,6 +379,7 @@ impl SectionKind {
 }
 
 bitflags! {
+    /// Section flags.
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
     pub struct SectionFlags: u64 {
         const WRITE = 1 << 0;
@@ -395,6 +397,7 @@ bitflags! {
 }
 
 bitflags! {
+    /// ARM-specific flags.
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
     pub struct ArmFlags: u32 {
         const RELEXEC        = 0x001;

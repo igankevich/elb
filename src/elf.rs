@@ -40,7 +40,9 @@ impl Elf {
     }
 
     pub fn read_unchecked<R: Read + Seek>(mut reader: R) -> Result<Self, Error> {
+        reader.seek(SeekFrom::Start(0))?;
         let header = Header::read(&mut reader)?;
+        reader.seek(SeekFrom::Start(header.program_header_offset))?;
         let segments = ProgramHeader::read(&mut reader, &header)?;
         let sections = SectionHeader::read(&mut reader, &header)?;
         let min_memory_offset = segments
@@ -71,6 +73,7 @@ impl Elf {
         self.validate()?;
         writer.seek(SeekFrom::Start(0))?;
         self.header.write(&mut writer)?;
+        writer.seek(SeekFrom::Start(self.header.program_header_offset))?;
         self.segments.write(&mut writer, &self.header)?;
         self.sections.write(&mut writer, &self.header)?;
         Ok(())

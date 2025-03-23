@@ -10,17 +10,17 @@ use std::ops::Range;
 use crate::align_down;
 use crate::align_up;
 use crate::io::v2::ElfReadV2;
-use crate::io::*;
 use crate::other::*;
 use crate::validation::*;
 use crate::ByteOrder;
 use crate::Class;
-use crate::DynamicTag;
+use crate::ElfWrite;
 use crate::Error;
 use crate::Header;
 use crate::SegmentFlags;
 use crate::SegmentKind;
 
+/// Segments.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ProgramHeader {
@@ -28,10 +28,12 @@ pub struct ProgramHeader {
 }
 
 impl ProgramHeader {
-    pub fn read<R: Read + Seek>(mut reader: R, header: &Header) -> Result<Self, Error> {
+    /// Read segments from `reader`.
+    pub fn read<R: ElfReadV2>(mut reader: R, header: &Header) -> Result<Self, Error>
+    where
+        for<'a> &'a mut R: ElfReadV2,
+    {
         // TODO We support only u16::MAX entries. There can be more entries.
-        reader.seek(SeekFrom::Start(header.program_header_offset))?;
-        let mut reader = reader.take(header.segment_len as u64 * header.num_segments as u64);
         let mut entries = Vec::with_capacity(header.num_segments as usize);
         for _ in 0..header.num_segments {
             let entry = Segment::read(&mut reader, header.class, header.byte_order)?;
@@ -41,45 +43,19 @@ impl ProgramHeader {
         Ok(ret)
     }
 
-    pub fn write<W: Write + Seek>(&self, mut writer: W, header: &Header) -> Result<(), Error> {
+    /// Write segments to `writer`.
+    pub fn write<W: ElfWrite>(&self, mut writer: W, header: &Header) -> Result<(), Error>
+    where
+        for<'a> &'a mut W: ElfWrite,
+    {
         assert_eq!(self.entries.len(), header.num_segments as usize);
-        writer.seek(SeekFrom::Start(header.program_header_offset))?;
         for entry in self.entries.iter() {
             entry.write(&mut writer, header.class, header.byte_order)?;
         }
         Ok(())
     }
 
-    pub fn read_dynamic_entries<R: Read + Seek>(
-        &self,
-        mut reader: R,
-        class: Class,
-        byte_order: ByteOrder,
-    ) -> Result<Vec<(DynamicTag, u64)>, Error> {
-        match self
-            .entries
-            .iter()
-            .find(|entry| entry.kind == SegmentKind::Dynamic)
-        {
-            Some(entry) => {
-                let content = entry.read_content(&mut reader)?;
-                let mut slice = &content[..];
-                let word_len = class.word_len();
-                let step = 2 * word_len;
-                let mut entries = Vec::with_capacity(content.len() / step);
-                for _ in (0..content.len()).step_by(step) {
-                    let tag: DynamicTag = get_word(class, byte_order, slice).try_into()?;
-                    slice = &slice[word_len..];
-                    let value = get_word(class, byte_order, slice);
-                    slice = &slice[word_len..];
-                    entries.push((tag, value));
-                }
-                Ok(entries)
-            }
-            None => Ok(Vec::new()),
-        }
-    }
-
+    /// Check segments.
     pub fn validate(&self, header: &Header, page_size: u64) -> Result<(), Error> {
         for segment in self.entries.iter() {
             segment.validate(header.class)?;
@@ -91,6 +67,9 @@ impl ProgramHeader {
         Ok(())
     }
 
+    /// Prepare segments for writing.
+    ///
+    /// Sort `LOAD` segments by their virtual address and places `PHDR` segment in the front.
     pub fn finish(&mut self) {
         self.entries.sort_unstable_by(|a, b| {
             if a.kind == SegmentKind::ProgramHeader {
@@ -286,6 +265,10 @@ impl DerefMut for ProgramHeader {
     }
 }
 
+/// Segment.
+///
+/// Segemnts is what dynamic loader maps into virtual address space of a program.
+/// Segments consists of [sections](crate::Section).
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Segment {

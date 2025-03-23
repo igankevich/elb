@@ -178,41 +178,14 @@ macro_rules! define_write {
                 LittleEndian => value.to_le_bytes(),
                 BigEndian => value.to_be_bytes(),
             };
-            self.write_all(&bytes)
+            self.write_bytes(&bytes)
         }
     };
 }
 
 pub trait ElfWrite {
-    fn write_u8(&mut self, value: u8) -> Result<(), Error>;
-    fn write_u16(&mut self, byte_order: ByteOrder, value: u16) -> Result<(), Error>;
-    fn write_u32(&mut self, byte_order: ByteOrder, value: u32) -> Result<(), Error>;
-    fn write_u64(&mut self, byte_order: ByteOrder, value: u64) -> Result<(), Error>;
-    fn write_word(&mut self, class: Class, byte_order: ByteOrder, value: u64) -> Result<(), Error>;
-
-    fn write_u32_as_u64(&mut self, byte_order: ByteOrder, value: u64) -> Result<(), Error> {
-        self.write_u32(
-            byte_order,
-            value.try_into().map_err(|_| ErrorKind::InvalidData)?,
-        )
-    }
-
-    fn write_i32(&mut self, byte_order: ByteOrder, value: i32) -> Result<(), Error>;
-    fn write_i64(&mut self, byte_order: ByteOrder, value: i64) -> Result<(), Error>;
-
-    fn write_i32_as_i64(&mut self, byte_order: ByteOrder, value: i64) -> Result<(), Error> {
-        self.write_i32(
-            byte_order,
-            value.try_into().map_err(|_| ErrorKind::InvalidData)?,
-        )
-    }
-
-    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error>;
-}
-
-impl<W: Write> ElfWrite for W {
     fn write_u8(&mut self, value: u8) -> Result<(), Error> {
-        self.write_all(&[value])
+        self.write_bytes(&[value])
     }
 
     define_write!(write_u16, u16);
@@ -233,6 +206,24 @@ impl<W: Write> ElfWrite for W {
         Ok(())
     }
 
+    fn write_u32_as_u64(&mut self, byte_order: ByteOrder, value: u64) -> Result<(), Error> {
+        self.write_u32(
+            byte_order,
+            value.try_into().map_err(|_| ErrorKind::InvalidData)?,
+        )
+    }
+
+    fn write_i32_as_i64(&mut self, byte_order: ByteOrder, value: i64) -> Result<(), Error> {
+        self.write_i32(
+            byte_order,
+            value.try_into().map_err(|_| ErrorKind::InvalidData)?,
+        )
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error>;
+}
+
+impl<W: Write> ElfWrite for W {
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
         self.write_all(bytes)
     }
