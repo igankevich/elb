@@ -10,10 +10,9 @@ macro_rules! define_specific_enum {
         $(Other($name3: ident))*
     } => {
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-        #[repr($int)]
         #[doc = $doc]
         pub enum $enum {
-            $( $name = $value, )*
+            $( $name, )*
             $( $name2($int), )*
             $( $name3($int), )*
         }
@@ -71,3 +70,46 @@ macro_rules! define_specific_enum {
 }
 
 pub(crate) use define_specific_enum;
+
+macro_rules! define_infallible_enum {
+    {
+        $doc: literal,
+        $enum: ident,
+        $int: ident,
+        $(($name: ident, $value: expr),)*
+    } => {
+        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+        #[doc = $doc]
+        pub enum $enum {
+            $( $name, )*
+            Other($int),
+        }
+
+        impl $enum {
+            pub(crate) const fn as_number(self) -> $int {
+                match self {
+                    $( Self::$name => $value, )*
+                    Self::Other(n) => n,
+                }
+            }
+        }
+
+        impl From<$int> for $enum {
+            fn from(n: $int) -> Self {
+                match n {
+                    $( $value => Self::$name, )*
+                    n => Self::Other(n),
+                }
+            }
+        }
+
+        impl<'a> ::arbitrary::Arbitrary<'a> for $enum {
+            fn arbitrary(u: &mut ::arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+                let number: $int = u.arbitrary()?;
+                Ok($enum::from(number))
+            }
+        }
+    };
+}
+
+pub(crate) use define_infallible_enum;

@@ -69,6 +69,7 @@ impl Elf {
     pub fn write<W: Write + Seek>(mut self, mut writer: W) -> Result<(), Error> {
         self.finish(&mut writer)?;
         self.validate()?;
+        writer.seek(SeekFrom::Start(0))?;
         self.header.write(&mut writer)?;
         self.segments.write(&mut writer, &self.header)?;
         self.sections.write(&mut writer, &self.header)?;
@@ -76,7 +77,7 @@ impl Elf {
     }
 
     pub fn validate(&self) -> Result<(), Error> {
-        self.header.validate()?;
+        self.header.check()?;
         self.segments.validate(&self.header, self.page_size)?;
         self.sections.validate(&self.header, &self.segments)?;
         Ok(())
@@ -764,7 +765,7 @@ impl Elf {
     #[allow(unused)]
     fn split_off_sections(&mut self, i: usize) {
         let segment = &self.segments[i];
-        let segment_address_range = segment.address_range();
+        let segment_address_range = segment.virtual_address_range();
         let segment_kind = segment.kind;
         let segment_flags = segment.flags;
         for section in self.sections.iter() {
@@ -858,7 +859,7 @@ impl Elf {
             }) {
                 // Move every other section in this segment to a separate segment.
                 let segment = &self.segments[i];
-                let segment_address_range = segment.address_range();
+                let segment_address_range = segment.virtual_address_range();
                 let segment_kind = segment.kind;
                 let segment_flags = segment.flags;
                 let mut new_segments = Vec::new();
@@ -964,7 +965,7 @@ impl Elf {
                 .iter()
                 .filter(|segment| segment.kind == SegmentKind::Loadable)
                 .map(|segment| {
-                    let Range { start, end } = segment.address_range();
+                    let Range { start, end } = segment.virtual_address_range();
                     (start, end)
                 }),
         );

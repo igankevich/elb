@@ -62,11 +62,27 @@ pub enum Error {
     #[error("Failed to allocate memory block")]
     MemoryBlockAlloc,
     #[error("Input/output error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(std::io::Error),
+    #[error("Unexpected EOF")]
+    UnexpectedEof,
+}
+
+impl From<std::io::Error> for Error {
+    fn from(other: std::io::Error) -> Self {
+        if other.kind() == std::io::ErrorKind::UnexpectedEof {
+            Self::UnexpectedEof
+        } else {
+            Self::Io(other)
+        }
+    }
 }
 
 impl From<std::io::ErrorKind> for Error {
     fn from(other: std::io::ErrorKind) -> Self {
-        Self::Io(other.into())
+        if other == std::io::ErrorKind::UnexpectedEof {
+            Self::UnexpectedEof
+        } else {
+            Self::Io(other.into())
+        }
     }
 }

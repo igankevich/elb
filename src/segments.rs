@@ -9,7 +9,7 @@ use std::ops::Range;
 
 use crate::align_down;
 use crate::align_up;
-use crate::constants::*;
+use crate::io::v2::ElfReadV2;
 use crate::io::*;
 use crate::other::*;
 use crate::validation::*;
@@ -34,12 +34,7 @@ impl ProgramHeader {
         let mut reader = reader.take(header.segment_len as u64 * header.num_segments as u64);
         let mut entries = Vec::with_capacity(header.num_segments as usize);
         for _ in 0..header.num_segments {
-            let entry = Segment::read(
-                &mut reader,
-                header.class,
-                header.byte_order,
-                header.segment_len,
-            )?;
+            let entry = Segment::read(&mut reader, header.class, header.byte_order)?;
             entries.push(entry);
         }
         let ret = Self { entries };
@@ -50,12 +45,7 @@ impl ProgramHeader {
         assert_eq!(self.entries.len(), header.num_segments as usize);
         writer.seek(SeekFrom::Start(header.program_header_offset))?;
         for entry in self.entries.iter() {
-            entry.write(
-                &mut writer,
-                header.class,
-                header.byte_order,
-                header.segment_len,
-            )?;
+            entry.write(&mut writer, header.class, header.byte_order)?;
         }
         Ok(())
     }
@@ -182,7 +172,7 @@ impl ProgramHeader {
         if entry_point != 0
             && !self.entries.iter().any(|segment| {
                 segment.kind == SegmentKind::Loadable
-                    && segment.contains_virtual_address(entry_point)
+                    && segment.virtual_address_range().contains(&entry_point)
             })
         {
             return Err(Error::InvalidEntryPoint(entry_point));
@@ -310,38 +300,25 @@ pub struct Segment {
 }
 
 impl Segment {
-    pub fn read<R: Read>(
+    pub fn read<R: ElfReadV2>(
         mut reader: R,
         class: Class,
         byte_order: ByteOrder,
-        entry_len: u16,
     ) -> Result<Self, Error> {
-        assert_eq!(class.segment_len(), entry_len);
-        let mut buf = [0_u8; MAX_SEGMENT_LEN];
-        reader.read_exact(&mut buf[..entry_len as usize])?;
-        let slice = &buf[..];
-        let kind: SegmentKind = get_u32(slice, byte_order).try_into()?;
-        let (flags_offset, slice) = match class {
-            Class::Elf32 => (24, &slice[4..]),
-            Class::Elf64 => (4, &slice[8..]),
-        };
-        let word_len = class.word_len();
-        let flags = get_u32(&buf[flags_offset..], byte_order);
-        let offset = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let virtual_address = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let physical_address = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let file_size = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let memory_size = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let align_offset = match class {
-            Class::Elf32 => 4,
-            Class::Elf64 => 0,
-        };
-        let align = get_word(class, byte_order, &slice[align_offset..]);
+        let kind: SegmentKind = reader.read_u32(byte_order)?.try_into()?;
+        let mut flags = 0;
+        if class == Class::Elf64 {
+            flags = reader.read_u32(byte_order)?;
+        }
+        let offset = reader.read_word(class, byte_order)?;
+        let virtual_address = reader.read_word(class, byte_order)?;
+        let physical_address = reader.read_word(class, byte_order)?;
+        let file_size = reader.read_word(class, byte_order)?;
+        let memory_size = reader.read_word(class, byte_order)?;
+        if class == Class::Elf32 {
+            flags = reader.read_u32(byte_order)?;
+        }
+        let align = reader.read_word(class, byte_order)?;
         Ok(Self {
             kind,
             flags: SegmentFlags::from_bits_retain(flags),
@@ -354,29 +331,25 @@ impl Segment {
         })
     }
 
-    pub fn write<W: Write>(
+    pub fn write<W: ElfWrite>(
         &self,
         mut writer: W,
         class: Class,
         byte_order: ByteOrder,
-        entry_len: u16,
     ) -> Result<(), Error> {
-        assert_eq!(class.segment_len(), entry_len);
-        let mut buf = Vec::with_capacity(entry_len as usize);
-        write_u32(&mut buf, byte_order, self.kind.as_u32())?;
+        writer.write_u32(byte_order, self.kind.as_u32())?;
         if class == Class::Elf64 {
-            write_u32(&mut buf, byte_order, self.flags.bits())?;
+            writer.write_u32(byte_order, self.flags.bits())?;
         }
-        write_word(&mut buf, class, byte_order, self.offset)?;
-        write_word(&mut buf, class, byte_order, self.virtual_address)?;
-        write_word(&mut buf, class, byte_order, self.physical_address)?;
-        write_word(&mut buf, class, byte_order, self.file_size)?;
-        write_word(&mut buf, class, byte_order, self.memory_size)?;
+        writer.write_word(class, byte_order, self.offset)?;
+        writer.write_word(class, byte_order, self.virtual_address)?;
+        writer.write_word(class, byte_order, self.physical_address)?;
+        writer.write_word(class, byte_order, self.file_size)?;
+        writer.write_word(class, byte_order, self.memory_size)?;
         if class == Class::Elf32 {
-            write_u32(&mut buf, byte_order, self.flags.bits())?;
+            writer.write_u32(byte_order, self.flags.bits())?;
         }
-        write_word(&mut buf, class, byte_order, self.align)?;
-        writer.write_all(&buf)?;
+        writer.write_word(class, byte_order, self.align)?;
         Ok(())
     }
 
@@ -404,22 +377,25 @@ impl Segment {
         Ok(())
     }
 
-    pub const fn address_range(&self) -> Range<u64> {
+    /// Physical address range.
+    pub const fn physical_address_range(&self) -> Range<u64> {
+        let start = self.physical_address;
+        let end = start + self.memory_size;
+        start..end
+    }
+
+    /// Virtual address range.
+    pub const fn virtual_address_range(&self) -> Range<u64> {
         let start = self.virtual_address;
         let end = start + self.memory_size;
         start..end
     }
 
-    pub fn contains_virtual_address(&self, addr: u64) -> bool {
-        let start = self.virtual_address;
-        let end = start + self.memory_size;
-        (start..end).contains(&addr)
-    }
-
-    pub fn contains_file_offset(&self, offset: u64) -> bool {
+    /// In-file location of the segment.
+    pub const fn file_offset_range(&self) -> Range<u64> {
         let start = self.offset;
         let end = start + self.file_size;
-        (start..end).contains(&offset)
+        start..end
     }
 
     pub fn validate(&self, class: Class) -> Result<(), Error> {
@@ -501,6 +477,7 @@ mod tests {
     use arbitrary::Unstructured;
     use arbtest::arbtest;
 
+    use crate::constants::*;
     use crate::FileKind;
 
     #[test]
@@ -508,13 +485,10 @@ mod tests {
         arbtest(|u| {
             let class: Class = u.arbitrary()?;
             let byte_order: ByteOrder = u.arbitrary()?;
-            let entry_len = class.segment_len();
             let expected = Segment::arbitrary(u, class)?;
             let mut buf = Vec::new();
-            expected
-                .write(&mut buf, class, byte_order, entry_len)
-                .unwrap();
-            let actual = Segment::read(&buf[..], class, byte_order, entry_len).unwrap();
+            expected.write(&mut buf, class, byte_order).unwrap();
+            let actual = Segment::read(&buf[..], class, byte_order).unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });
@@ -534,10 +508,10 @@ mod tests {
                 program_header_offset: 0,
                 class,
                 byte_order,
-                os_abi: 0,
+                os_abi: 0.into(),
                 abi_version: 0,
                 kind: FileKind::Executable,
-                machine: 0,
+                machine: 0.into(),
                 flags: 0,
                 entry_point: 0,
                 section_header_offset: class.arbitrary_word(u)?,
@@ -561,7 +535,7 @@ mod tests {
 
     impl ProgramHeader {
         pub fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
-            let num_entries = u.arbitrary_len::<[u8; MAX_SEGMENT_LEN]>()?;
+            let num_entries = u.arbitrary_len::<[u8; SEGMENT_LEN_64]>()?;
             let mut entries: Vec<Segment> = Vec::with_capacity(num_entries);
             for _ in 0..num_entries {
                 entries.push(Segment::arbitrary(u, class)?);

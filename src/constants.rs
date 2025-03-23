@@ -5,11 +5,9 @@ pub const VERSION: u8 = 1;
 
 pub const HEADER_LEN_32: usize = 52;
 pub const HEADER_LEN_64: usize = 64;
-pub const MAX_HEADER_LEN: usize = HEADER_LEN_64;
 
 pub const SEGMENT_LEN_32: usize = 32;
 pub const SEGMENT_LEN_64: usize = 56;
-pub const MAX_SEGMENT_LEN: usize = SEGMENT_LEN_64;
 
 pub const SECTION_LEN_32: usize = 40;
 pub const SECTION_LEN_64: usize = 64;

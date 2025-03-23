@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use elfie::Class;
 use elfie::DynamicTag;
 use elfie::Elf;
+use elfie::Machine;
 use fs_err::File;
 use glob::glob;
 use log::log_enabled;
@@ -251,11 +252,12 @@ fn interpolate(dir: &Path, file: &Path, elf: &Elf) -> PathBuf {
             // TODO more platforms
             Normal(comp) if comp == "$PLATFORM" || comp == "${PLATFOMR}" => {
                 let platform = match elf.header.machine {
-                    0x3e => "x86_64",
+                    Machine::X86_64 => "x86_64",
                     _ => {
                         warn!(
-                            "Failed to interpolate $PLATFORM, machine is {:#x}",
-                            elf.header.machine
+                            "Failed to interpolate $PLATFORM, machine is {:?} ({})",
+                            elf.header.machine,
+                            elf.header.machine.as_u16()
                         );
                         interpolated.push(comp);
                         continue;

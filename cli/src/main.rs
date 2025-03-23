@@ -8,7 +8,9 @@ use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use elfie::ArmFlags;
 use elfie::Elf;
+use elfie::Machine;
 use elfie::StringTable;
 use fs_err::File;
 use fs_err::OpenOptions;
@@ -149,7 +151,16 @@ fn show_header(elf: &Elf, printer: &mut Printer) {
     printer.kv("ABI version", format_args!("{:?}", elf.header.abi_version));
     printer.kv("File type", format_args!("{:?}", elf.header.kind));
     printer.kv("Machine", format_args!("{:?}", elf.header.machine));
-    printer.kv("Flags", format_args!("{:#x}", elf.header.flags));
+    match elf.header.machine {
+        Machine::Arm => {
+            let arm_flags = ArmFlags::from_bits_retain(elf.header.flags);
+            printer.kv(
+                "Flags",
+                format_args!("{:?} ({:#x})", arm_flags, elf.header.flags,),
+            );
+        }
+        _ => printer.kv("Flags", format_args!("{:#x}", elf.header.flags)),
+    }
     printer.kv("Entry point", format_args!("{:#x}", elf.header.entry_point));
     printer.kv(
         "Program header",

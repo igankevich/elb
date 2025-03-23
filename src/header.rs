@@ -1,17 +1,15 @@
-use std::io::ErrorKind::UnexpectedEof;
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
-use std::io::Write;
-use std::ops::Range;
+use core::ops::Range;
 
 use crate::constants::*;
-use crate::io::*;
+use crate::io::v2::ElfReadV2;
 use crate::validation::*;
 use crate::ByteOrder;
 use crate::Class;
+use crate::ElfWrite;
 use crate::Error;
 use crate::FileKind;
+use crate::Machine;
+use crate::OsAbi;
 
 /// ELF header.
 #[derive(Debug)]
@@ -21,77 +19,75 @@ pub struct Header {
     pub class: Class,
     /// Data format.
     pub byte_order: ByteOrder,
-    pub os_abi: u8,
+    /// Operating system ABI.
+    pub os_abi: OsAbi,
+    /// ABI version
     pub abi_version: u8,
+    /// File type.
     pub kind: FileKind,
-    pub machine: u16,
+    /// Architecture.
+    pub machine: Machine,
+    /// Architecture-specific flags.
+    ///
+    /// Use [`ArmFlags`](crate::ArmFlags) to query ARM-specific flags.
     pub flags: u32,
+    /// Program entry point.
     pub entry_point: u64,
+    /// Program header (the list of segments) offset within the file.
     pub program_header_offset: u64,
+    /// The length of each segment's metadata entry.
     pub segment_len: u16,
+    /// The number of segments.
     pub num_segments: u16,
+    /// Section header (the list of sections) offset within the file.
     pub section_header_offset: u64,
+    /// The length of each section's metadata entry.
     pub section_len: u16,
+    /// The number of sections.
     pub num_sections: u16,
+    /// The index of the section in the section header that stores the names of sections.
     pub section_names_index: u16,
+    /// The length of the ELF header.
     pub len: u16,
 }
 
 impl Header {
-    pub fn read<R: Read>(mut reader: R) -> Result<Self, Error> {
-        let mut buf = [0_u8; MAX_HEADER_LEN];
-        reader.read_exact(&mut buf[..5]).map_err(|e| {
-            if e.kind() == UnexpectedEof {
-                return Error::NotElf;
-            }
-            e.into()
+    /// Read header from `reader`.
+    pub fn read<R: ElfReadV2>(mut reader: R) -> Result<Self, Error> {
+        let mut magic = [0_u8; MAGIC.len()];
+        reader.read_bytes(&mut magic[..]).map_err(|e| match e {
+            Error::UnexpectedEof => Error::NotElf,
+            e => e,
         })?;
-        if buf[..MAGIC.len()] != MAGIC {
+        if magic != MAGIC {
             return Err(Error::NotElf);
         }
-        let class: Class = buf[4].try_into()?;
-        let header_len = class.header_len();
-        reader.read_exact(&mut buf[5..header_len as usize])?;
-        let byte_order: ByteOrder = buf[5].try_into()?;
-        let version = buf[6];
+        let class: Class = reader.read_u8()?.try_into()?;
+        let byte_order: ByteOrder = reader.read_u8()?.try_into()?;
+        let version = reader.read_u8()?;
         if version != VERSION {
             return Err(Error::InvalidVersion(version));
         }
-        let os_abi = buf[7];
-        let abi_version = buf[8];
-        let kind: FileKind = get_u16(&buf[16..18], byte_order).try_into()?;
-        let machine = get_u16(&buf[18..20], byte_order);
-        let version = buf[20];
+        let os_abi = reader.read_u8()?.into();
+        let abi_version = reader.read_u8()?;
+        reader.read_bytes(&mut [0_u8; 7])?;
+        let kind: FileKind = reader.read_u16(byte_order)?.try_into()?;
+        let machine = reader.read_u16(byte_order)?.into();
+        let version = reader.read_u8()?;
         if version != VERSION {
             return Err(Error::InvalidVersion(version));
         }
-        let word_len = class.word_len();
-        let entry_point = get_word(class, byte_order, &buf[24..]);
-        let slice = &buf[24 + word_len..];
-        let program_header_offset = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let section_header_offset = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let flags = get_u32(slice, byte_order);
-        let slice = &slice[4..];
-        let real_header_len = get_u16(slice, byte_order);
-        let slice = &slice[2..];
-        let segment_len = get_u16(slice, byte_order);
-        let slice = &slice[2..];
-        let num_segments = get_u16(slice, byte_order);
-        let slice = &slice[2..];
-        let section_len = get_u16(slice, byte_order);
-        let slice = &slice[2..];
-        let num_sections = get_u16(slice, byte_order);
-        let slice = &slice[2..];
-        let section_names_index = get_u16(slice, byte_order);
-        if real_header_len > header_len {
-            // Throw away padding bytes.
-            std::io::copy(
-                &mut reader.take(real_header_len as u64 - header_len as u64),
-                &mut std::io::empty(),
-            )?;
-        }
+        reader.read_bytes(&mut [0_u8; 3])?;
+        let entry_point = reader.read_word(class, byte_order)?;
+        let program_header_offset = reader.read_word(class, byte_order)?;
+        let section_header_offset = reader.read_word(class, byte_order)?;
+        let flags = reader.read_u32(byte_order)?;
+        let real_header_len = reader.read_u16(byte_order)?;
+        let segment_len = reader.read_u16(byte_order)?;
+        let num_segments = reader.read_u16(byte_order)?;
+        let section_len = reader.read_u16(byte_order)?;
+        let num_sections = reader.read_u16(byte_order)?;
+        let section_names_index = reader.read_u16(byte_order)?;
         let ret = Self {
             class,
             byte_order,
@@ -113,64 +109,38 @@ impl Header {
         Ok(ret)
     }
 
-    pub fn write<W: Write + Seek>(&self, mut writer: W) -> Result<(), Error> {
-        self.validate()?;
-        let mut buf = [0_u8; HEADER_LEN_64];
-        buf[..MAGIC.len()].copy_from_slice(&MAGIC);
-        buf[4] = self.class as u8;
-        buf[5] = self.byte_order as u8;
-        buf[6] = VERSION;
-        buf[7] = self.os_abi;
-        buf[8] = self.abi_version;
-        write_u16(&mut buf[16..], self.byte_order, self.kind.as_u16())?;
-        write_u16(&mut buf[18..], self.byte_order, self.machine)?;
-        buf[20] = VERSION;
-        let word_len = self.class.word_len();
-        let mut offset = 24;
-        write_word(
-            &mut buf[offset..],
-            self.class,
-            self.byte_order,
-            self.entry_point,
-        )?;
-        offset += word_len;
-        write_word(
-            &mut buf[offset..],
-            self.class,
-            self.byte_order,
-            self.program_header_offset,
-        )?;
-        offset += word_len;
-        write_word(
-            &mut buf[offset..],
-            self.class,
-            self.byte_order,
-            self.section_header_offset,
-        )?;
-        offset += word_len;
-        write_u32(&mut buf[offset..], self.byte_order, self.flags)?;
-        offset += 4;
-        write_u16(&mut buf[offset..], self.byte_order, self.len)?;
-        offset += 2;
-        write_u16(&mut buf[offset..], self.byte_order, self.segment_len)?;
-        offset += 2;
-        write_u16(&mut buf[offset..], self.byte_order, self.num_segments)?;
-        offset += 2;
-        write_u16(&mut buf[offset..], self.byte_order, self.section_len)?;
-        offset += 2;
-        write_u16(&mut buf[offset..], self.byte_order, self.num_sections)?;
-        offset += 2;
-        write_u16(
-            &mut buf[offset..],
-            self.byte_order,
-            self.section_names_index,
-        )?;
-        writer.seek(SeekFrom::Start(0))?;
-        writer.write_all(&buf[..self.len as usize])?;
+    /// Write header to `writer`.
+    ///
+    /// The header is validated before writing.
+    pub fn write<W: ElfWrite>(&self, writer: W) -> Result<(), Error> {
+        self.check()?;
+        let mut out = writer;
+        out.write_bytes(&MAGIC)?;
+        out.write_u8(self.class as u8)?;
+        out.write_u8(self.byte_order as u8)?;
+        out.write_u8(VERSION)?;
+        out.write_u8(self.os_abi.as_u8())?;
+        out.write_u8(self.abi_version)?;
+        out.write_bytes(&[0_u8; 7])?;
+        out.write_u16(self.byte_order, self.kind.as_u16())?;
+        out.write_u16(self.byte_order, self.machine.as_u16())?;
+        out.write_u8(VERSION)?;
+        out.write_bytes(&[0_u8; 3])?;
+        out.write_word(self.class, self.byte_order, self.entry_point)?;
+        out.write_word(self.class, self.byte_order, self.program_header_offset)?;
+        out.write_word(self.class, self.byte_order, self.section_header_offset)?;
+        out.write_u32(self.byte_order, self.flags)?;
+        out.write_u16(self.byte_order, self.len)?;
+        out.write_u16(self.byte_order, self.segment_len)?;
+        out.write_u16(self.byte_order, self.num_segments)?;
+        out.write_u16(self.byte_order, self.section_len)?;
+        out.write_u16(self.byte_order, self.num_sections)?;
+        out.write_u16(self.byte_order, self.section_names_index)?;
         Ok(())
     }
 
-    pub fn validate(&self) -> Result<(), Error> {
+    /// Validate the header.
+    pub fn check(&self) -> Result<(), Error> {
         if self.len != self.class.header_len() {
             return Err(Error::InvalidHeaderLen(self.len));
         }
@@ -245,7 +215,7 @@ const fn blocks_overlap(a: &Range<u64>, b: &Range<u64>) -> bool {
     a.start < b.end && b.start < a.end
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

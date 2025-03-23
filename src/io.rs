@@ -8,7 +8,6 @@ use crate::Class;
 use ByteOrder::*;
 use Class::*;
 
-#[allow(unused)]
 pub trait ElfRead {
     fn read_u16(&self, byte_order: ByteOrder) -> u16;
     fn read_u32(&self, byte_order: ByteOrder) -> u32;
@@ -71,6 +70,107 @@ impl ElfRead for [u8] {
     }
 }
 
+pub trait ElfReadMut {
+    fn read_u16(&mut self, byte_order: ByteOrder) -> u16;
+    fn read_u32(&mut self, byte_order: ByteOrder) -> u32;
+    fn read_word(&mut self, class: Class, byte_order: ByteOrder) -> u64;
+}
+
+impl ElfReadMut for &[u8] {
+    fn read_u16(&mut self, byte_order: ByteOrder) -> u16 {
+        let ret = match byte_order {
+            LittleEndian => u16::from_le_bytes([self[0], self[1]]),
+            BigEndian => u16::from_be_bytes([self[0], self[1]]),
+        };
+        *self = &self[2..];
+        ret
+    }
+
+    fn read_u32(&mut self, byte_order: ByteOrder) -> u32 {
+        let ret = self[..4].read_u32(byte_order);
+        *self = &self[4..];
+        ret
+    }
+
+    fn read_word(&mut self, class: Class, byte_order: ByteOrder) -> u64 {
+        let n = class.word_len();
+        let ret = self[..n].read_word(class, byte_order);
+        *self = &self[n..];
+        ret
+    }
+}
+
+pub mod v2 {
+    use super::*;
+
+    pub trait ElfReadV2 {
+        fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), crate::Error>;
+
+        fn read_u8(&mut self) -> Result<u8, crate::Error> {
+            let mut bytes = [0_u8; 1];
+            self.read_bytes(&mut bytes[..])?;
+            Ok(bytes[0])
+        }
+
+        fn read_u16(&mut self, byte_order: ByteOrder) -> Result<u16, crate::Error> {
+            let mut bytes = [0_u8; 2];
+            self.read_bytes(&mut bytes[..])?;
+            let ret = match byte_order {
+                LittleEndian => u16::from_le_bytes(bytes),
+                BigEndian => u16::from_be_bytes(bytes),
+            };
+            Ok(ret)
+        }
+
+        fn read_u32(&mut self, byte_order: ByteOrder) -> Result<u32, crate::Error> {
+            let mut bytes = [0_u8; 4];
+            self.read_bytes(&mut bytes[..])?;
+            let ret = match byte_order {
+                LittleEndian => u32::from_le_bytes(bytes),
+                BigEndian => u32::from_be_bytes(bytes),
+            };
+            Ok(ret)
+        }
+
+        fn read_u64(&mut self, byte_order: ByteOrder) -> Result<u64, crate::Error> {
+            let mut bytes = [0_u8; 8];
+            self.read_bytes(&mut bytes[..])?;
+            let ret = match byte_order {
+                LittleEndian => u64::from_le_bytes(bytes),
+                BigEndian => u64::from_be_bytes(bytes),
+            };
+            Ok(ret)
+        }
+
+        fn read_word(&mut self, class: Class, byte_order: ByteOrder) -> Result<u64, crate::Error> {
+            match class {
+                Elf32 => self.read_u32(byte_order).map(Into::into),
+                Elf64 => self.read_u64(byte_order),
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl<R: std::io::Read> ElfReadV2 for R {
+        fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), crate::Error> {
+            Ok(self.read_exact(buf)?)
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    impl ElfReadV2 for &[u8] {
+        fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), crate::Error> {
+            let n = buf.len();
+            if n > self.len() {
+                return Err(Error::UnexpectedEof);
+            }
+            buf.copy_from_slice(self[..n]);
+            *self = &self[n..];
+            Ok(())
+        }
+    }
+}
+
 macro_rules! define_write {
     ($func: ident, $uint: ident) => {
         fn $func(&mut self, byte_order: ByteOrder, value: $uint) -> Result<(), Error> {
@@ -106,6 +206,8 @@ pub trait ElfWrite {
             value.try_into().map_err(|_| ErrorKind::InvalidData)?,
         )
     }
+
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error>;
 }
 
 impl<W: Write> ElfWrite for W {
@@ -130,6 +232,10 @@ impl<W: Write> ElfWrite for W {
         }
         Ok(())
     }
+
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        self.write_all(bytes)
+    }
 }
 
 pub fn get_u16(data: &[u8], byte_order: ByteOrder) -> u16 {
@@ -137,14 +243,6 @@ pub fn get_u16(data: &[u8], byte_order: ByteOrder) -> u16 {
         LittleEndian => u16::from_le_bytes([data[0], data[1]]),
         BigEndian => u16::from_be_bytes([data[0], data[1]]),
     }
-}
-
-pub fn write_u16<W: Write>(mut writer: W, byte_order: ByteOrder, value: u16) -> Result<(), Error> {
-    let bytes = match byte_order {
-        LittleEndian => value.to_le_bytes(),
-        BigEndian => value.to_be_bytes(),
-    };
-    writer.write_all(&bytes)
 }
 
 pub fn get_u32(data: &[u8], byte_order: ByteOrder) -> u32 {

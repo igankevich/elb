@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
 arbtest = "0.3.2"
