@@ -44,6 +44,7 @@ impl Elf {
         let header = Header::read(&mut reader)?;
         reader.seek(SeekFrom::Start(header.program_header_offset))?;
         let segments = ProgramHeader::read(&mut reader, &header)?;
+        reader.seek(SeekFrom::Start(header.section_header_offset))?;
         let sections = SectionHeader::read(&mut reader, &header)?;
         let min_memory_offset = segments
             .iter()
@@ -75,6 +76,7 @@ impl Elf {
         self.header.write(&mut writer)?;
         writer.seek(SeekFrom::Start(self.header.program_header_offset))?;
         self.segments.write(&mut writer, &self.header)?;
+        writer.seek(SeekFrom::Start(self.header.section_header_offset))?;
         self.sections.write(&mut writer, &self.header)?;
         Ok(())
     }
@@ -518,7 +520,7 @@ impl Elf {
         let dynstr_table_section = &self.sections[dynstr_table_index];
         if !self
             .segments
-            .is_loadable(dynstr_table_section.file_offsets())
+            .is_loadable(dynstr_table_section.file_offset_range())
         {
             self.segments.add(Segment {
                 kind: SegmentKind::Loadable,
@@ -959,7 +961,7 @@ impl Elf {
                         && section.flags.contains(SectionFlags::ALLOC)
                 })
                 .map(|section| {
-                    let Range { start, end } = section.memory_offsets();
+                    let Range { start, end } = section.virtual_address_range();
                     (start, end)
                 }),
         );

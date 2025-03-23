@@ -11,7 +11,6 @@ pub const SEGMENT_LEN_64: usize = 56;
 
 pub const SECTION_LEN_32: usize = 40;
 pub const SECTION_LEN_64: usize = 64;
-pub const MAX_SECTION_LEN: usize = SECTION_LEN_64;
 
 pub const SYMBOL_LEN_32: usize = 16;
 pub const SYMBOL_LEN_64: usize = 24;

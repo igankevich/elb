@@ -267,18 +267,35 @@ impl DerefMut for ProgramHeader {
 
 /// Segment.
 ///
-/// Segemnts is what dynamic loader maps into virtual address space of a program.
-/// Segments consists of [sections](crate::Section).
+/// Dynamic loader maps segments into virtual address space of a program.
+/// Usually segments consists of [sections](crate::Section), however, some segment types exist on
+/// their own.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Segment {
+    /// Segment type.
     pub kind: SegmentKind,
+    /// Flags.
     pub flags: SegmentFlags,
+    /// In-file offset.
     pub offset: u64,
+    /// Virtual address (in-memory offset).
     pub virtual_address: u64,
+    /// Physical address (in-memory offset).
+    ///
+    /// Usually physical address is the same as virtual address.
     pub physical_address: u64,
+    /// In-file size.
     pub file_size: u64,
+    /// In-memory size.
     pub memory_size: u64,
+    /// Alignment.
+    ///
+    /// - Offset and virtual address *must* have congruent values,
+    ///   i.e. `offset % align == virtual_address % align`.
+    /// - `LOAD` segments boundaries are expanded to the nearest page boundaries,
+    ///   i.e. `offset` is rounded *down* to a multiple of page size and
+    ///   `offset + memory_size` is rounded *up* to a multiple of page size.
     pub align: u64,
 }
 
@@ -381,6 +398,7 @@ impl Segment {
         start..end
     }
 
+    /// Check segment.
     pub fn validate(&self, class: Class) -> Result<(), Error> {
         self.validate_overflow(class)?;
         self.validate_align()?;

@@ -7,6 +7,7 @@ use std::ops::DerefMut;
 use std::ops::Range;
 
 use crate::constants::*;
+use crate::io::v2::ElfReadV2;
 use crate::io::*;
 use crate::other::*;
 use crate::validation::*;
@@ -20,6 +21,7 @@ use crate::SectionFlags;
 use crate::SectionKind;
 use crate::SegmentKind;
 
+/// Sections.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct SectionHeader {
@@ -27,37 +29,33 @@ pub struct SectionHeader {
 }
 
 impl SectionHeader {
-    pub fn read<R: Read + Seek>(mut reader: R, header: &Header) -> Result<Self, Error> {
-        reader.seek(SeekFrom::Start(header.section_header_offset))?;
-        let mut reader = reader.take(header.section_len as u64 * header.num_sections as u64);
+    /// Read sections from `reader`.
+    pub fn read<R: ElfReadV2>(mut reader: R, header: &Header) -> Result<Self, Error>
+    where
+        for<'a> &'a mut R: ElfReadV2,
+    {
         let mut entries = Vec::with_capacity(header.num_sections as usize);
         for _ in 0..header.num_sections {
-            let entry = Section::read(
-                &mut reader,
-                header.class,
-                header.byte_order,
-                header.section_len,
-            )?;
+            let entry = Section::read(&mut reader, header.class, header.byte_order)?;
             entries.push(entry);
         }
         let ret = Self { entries };
         Ok(ret)
     }
 
-    pub fn write<W: Write + Seek>(&self, mut writer: W, header: &Header) -> Result<(), Error> {
+    /// Write sections to `writer`.
+    pub fn write<W: ElfWrite>(&self, mut writer: W, header: &Header) -> Result<(), Error>
+    where
+        for<'a> &'a mut W: ElfWrite,
+    {
         assert_eq!(self.entries.len(), header.num_sections as usize);
-        writer.seek(SeekFrom::Start(header.section_header_offset))?;
         for entry in self.entries.iter() {
-            entry.write(
-                &mut writer,
-                header.class,
-                header.byte_order,
-                header.section_len,
-            )?;
+            entry.write(&mut writer, header.class, header.byte_order)?;
         }
         Ok(())
     }
 
+    /// Check sections.
     pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
         if let Some(section) = self.entries.first() {
             if section.kind != SectionKind::Null {
@@ -145,22 +143,47 @@ impl DerefMut for SectionHeader {
     }
 }
 
+/// Section.
+///
+/// Dynamic loader maps sections into virtual address space of a program as part of segments.
+/// Usually sections are part of [segments](crate::Segment), however, some section types exist on
+/// their own.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Section {
+    /// Offset of the section name in the section that stores section names.
+    ///
+    /// You can find the index of this section via
+    /// [`Header::section_names_index`](crate::Header::section_names_index).
     pub name_offset: u32,
+    /// Section type.
     pub kind: SectionKind,
+    /// Section flags.
     pub flags: SectionFlags,
+    /// Virtual address (in-memory offset).
     pub virtual_address: u64,
+    /// In-file offset.
     pub offset: u64,
+    /// Section size.
     pub size: u64,
+    /// Optional index of the related section.
     pub link: u32,
+    /// Extra information.
+    ///
+    /// Depends on the section type.
     pub info: u32,
+    /// Alignment.
+    ///
+    /// Only virtual address has alignment constraints.
     pub align: u64,
+    /// The size of the entry in the references table.
+    ///
+    /// Only relevant for sections that reference tables.
     pub entry_len: u64,
 }
 
 impl Section {
+    /// Create `NULL` section.
     pub fn null() -> Self {
         Self {
             name_offset: 0,
@@ -176,36 +199,22 @@ impl Section {
         }
     }
 
-    pub fn read<R: Read>(
+    /// Read section from `reader.
+    pub fn read<R: ElfReadV2>(
         mut reader: R,
         class: Class,
         byte_order: ByteOrder,
-        entry_len: u16,
     ) -> Result<Self, Error> {
-        assert_eq!(class.section_len(), entry_len);
-        let mut buf = [0_u8; MAX_SECTION_LEN];
-        reader.read_exact(&mut buf[..entry_len as usize])?;
-        let word_len = class.word_len();
-        let slice = &buf[..];
-        let name_offset = get_u32(slice, byte_order);
-        let slice = &slice[4..];
-        let kind: SectionKind = get_u32(slice, byte_order).try_into()?;
-        let slice = &slice[4..];
-        let flags = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let virtual_address = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let offset = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let size = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let link = get_u32(slice, byte_order);
-        let slice = &slice[4..];
-        let info = get_u32(slice, byte_order);
-        let slice = &slice[4..];
-        let align = get_word(class, byte_order, slice);
-        let slice = &slice[word_len..];
-        let entry_len = get_word(class, byte_order, slice);
+        let name_offset = reader.read_u32(byte_order)?;
+        let kind: SectionKind = reader.read_u32(byte_order)?.try_into()?;
+        let flags = reader.read_word(class, byte_order)?;
+        let virtual_address = reader.read_word(class, byte_order)?;
+        let offset = reader.read_word(class, byte_order)?;
+        let size = reader.read_word(class, byte_order)?;
+        let link = reader.read_u32(byte_order)?;
+        let info = reader.read_u32(byte_order)?;
+        let align = reader.read_word(class, byte_order)?;
+        let entry_len = reader.read_word(class, byte_order)?;
         Ok(Self {
             name_offset,
             kind,
@@ -220,26 +229,23 @@ impl Section {
         })
     }
 
-    pub fn write<W: Write>(
+    /// Write section to `writer.`
+    pub fn write<W: ElfWrite>(
         &self,
         mut writer: W,
         class: Class,
         byte_order: ByteOrder,
-        entry_len: u16,
     ) -> Result<(), Error> {
-        assert_eq!(class.section_len(), entry_len);
-        let mut buf = Vec::with_capacity(entry_len as usize);
-        write_u32(&mut buf, byte_order, self.name_offset)?;
-        write_u32(&mut buf, byte_order, self.kind.as_u32())?;
-        write_word(&mut buf, class, byte_order, self.flags.bits())?;
-        write_word(&mut buf, class, byte_order, self.virtual_address)?;
-        write_word(&mut buf, class, byte_order, self.offset)?;
-        write_word(&mut buf, class, byte_order, self.size)?;
-        write_u32(&mut buf, byte_order, self.link)?;
-        write_u32(&mut buf, byte_order, self.info)?;
-        write_word(&mut buf, class, byte_order, self.align)?;
-        write_word(&mut buf, class, byte_order, self.entry_len)?;
-        writer.write_all(&buf)?;
+        writer.write_u32(byte_order, self.name_offset)?;
+        writer.write_u32(byte_order, self.kind.as_u32())?;
+        writer.write_word(class, byte_order, self.flags.bits())?;
+        writer.write_word(class, byte_order, self.virtual_address)?;
+        writer.write_word(class, byte_order, self.offset)?;
+        writer.write_word(class, byte_order, self.size)?;
+        writer.write_u32(byte_order, self.link)?;
+        writer.write_u32(byte_order, self.info)?;
+        writer.write_word(class, byte_order, self.align)?;
+        writer.write_word(class, byte_order, self.entry_len)?;
         Ok(())
     }
 
@@ -267,13 +273,15 @@ impl Section {
         Ok(())
     }
 
-    pub const fn memory_offsets(&self) -> Range<u64> {
+    /// Virtual address range.
+    pub const fn virtual_address_range(&self) -> Range<u64> {
         let start = self.virtual_address;
         let end = start + self.size;
         start..end
     }
 
-    pub const fn file_offsets(&self) -> Range<u64> {
+    /// In-file location of the segment.
+    pub const fn file_offset_range(&self) -> Range<u64> {
         let start = self.offset;
         let end = start + self.size;
         start..end
@@ -320,7 +328,7 @@ impl Section {
             }
             _ if self.flags.contains(SectionFlags::ALLOC) => {
                 let align = self.align;
-                if align > 1 && self.offset % align != 0 || self.virtual_address % self.align != 0 {
+                if align > 1 && self.virtual_address % align != 0 {
                     let section_start = self.virtual_address;
                     let section_end = section_start + self.size;
                     return Err(Error::MisalignedSection(section_start, section_end, align));
@@ -377,13 +385,10 @@ mod tests {
         arbtest(|u| {
             let class: Class = u.arbitrary()?;
             let byte_order: ByteOrder = u.arbitrary()?;
-            let entry_len = class.section_len();
             let expected = Section::arbitrary(u, class)?;
             let mut buf = Vec::new();
-            expected
-                .write(&mut buf, class, byte_order, entry_len)
-                .unwrap();
-            let actual = Section::read(&buf[..], class, byte_order, entry_len).unwrap();
+            expected.write(&mut buf, class, byte_order).unwrap();
+            let actual = Section::read(&buf[..], class, byte_order).unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });
@@ -425,7 +430,7 @@ mod tests {
 
     impl SectionHeader {
         pub fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
-            let num_entries = u.arbitrary_len::<[u8; MAX_SECTION_LEN]>()?;
+            let num_entries = u.arbitrary_len::<[u8; SECTION_LEN_64]>()?;
             let mut entries = Vec::with_capacity(num_entries);
             for _ in 0..num_entries {
                 entries.push(Section::arbitrary(u, class)?);
