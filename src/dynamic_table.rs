@@ -18,35 +18,57 @@ impl DynamicTable {
         Self::default()
     }
 
-    pub fn from_bytes(content: &[u8], class: Class, byte_order: ByteOrder) -> Result<Self, Error> {
-        let mut slice = content;
-        let word_len = class.word_len();
-        let step = 2 * word_len;
-        let mut entries = Vec::with_capacity(content.len() / step);
-        for _ in (0..content.len()).step_by(step) {
-            let tag: DynamicTag = get_word(class, byte_order, slice).try_into()?;
+    pub fn in_file_len(&self, class: Class) -> usize {
+        let x = if self.entries.last() == Some(&(DynamicTag::Null, 0)) {
+            0
+        } else {
+            1
+        };
+        (self.entries.len() + x) * class.dynamic_len()
+    }
+
+    pub fn read<R: ElfRead>(
+        mut reader: R,
+        class: Class,
+        byte_order: ByteOrder,
+        len: u64,
+    ) -> Result<Self, Error>
+    where
+        for<'a> &'a mut R: ElfRead,
+    {
+        let mut entries = Vec::with_capacity((len / class.dynamic_len() as u64) as usize);
+        let step = class.dynamic_len();
+        for _ in (0..len).step_by(step) {
+            let tag: DynamicTag = reader.read_word(class, byte_order)?.try_into()?;
             if tag == DynamicTag::Null {
                 // NULL entry marks the end of the section.
                 break;
             }
-            slice = &slice[word_len..];
-            let value = get_word(class, byte_order, slice);
-            slice = &slice[word_len..];
+            let value = reader.read_word(class, byte_order)?;
             entries.push((tag, value));
         }
         Ok(Self { entries })
     }
 
-    pub fn to_bytes(&self, class: Class, byte_order: ByteOrder) -> Result<Vec<u8>, Error> {
-        let mut content = Vec::new();
+    pub fn write<W: ElfWrite>(
+        &self,
+        mut writer: W,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<(), Error>
+    where
+        for<'a> &'a mut W: ElfWrite,
+    {
         for (kind, value) in self.entries.iter() {
-            write_word_u32(&mut content, class, byte_order, kind.as_u32())?;
-            write_word(&mut content, class, byte_order, *value)?;
+            writer.write_word_as_u32(class, byte_order, kind.as_u32())?;
+            writer.write_word(class, byte_order, *value)?;
         }
-        // Write NULL to mark the end of the section.
-        write_word_u32(&mut content, class, byte_order, 0)?;
-        write_word_u32(&mut content, class, byte_order, 0)?;
-        Ok(content)
+        if self.entries.last() != Some(&(DynamicTag::Null, 0)) {
+            // Write NULL entry to mark the end of the section.
+            writer.write_word_as_u32(class, byte_order, 0)?;
+            writer.write_word_as_u32(class, byte_order, 0)?;
+        }
+        Ok(())
     }
 
     pub fn set(&mut self, tag: DynamicTag, value: u64) {

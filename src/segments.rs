@@ -9,7 +9,7 @@ use std::ops::Range;
 
 use crate::align_down;
 use crate::align_up;
-use crate::io::v2::ElfReadV2;
+use crate::ElfRead;
 use crate::other::*;
 use crate::validation::*;
 use crate::ByteOrder;
@@ -29,9 +29,9 @@ pub struct ProgramHeader {
 
 impl ProgramHeader {
     /// Read segments from `reader`.
-    pub fn read<R: ElfReadV2>(mut reader: R, header: &Header) -> Result<Self, Error>
+    pub fn read<R: ElfRead>(mut reader: R, header: &Header) -> Result<Self, Error>
     where
-        for<'a> &'a mut R: ElfReadV2,
+        for<'a> &'a mut R: ElfRead,
     {
         // TODO We support only u16::MAX entries. There can be more entries.
         let mut entries = Vec::with_capacity(header.num_segments as usize);
@@ -300,7 +300,7 @@ pub struct Segment {
 }
 
 impl Segment {
-    pub fn read<R: ElfReadV2>(
+    pub fn read<R: ElfRead>(
         mut reader: R,
         class: Class,
         byte_order: ByteOrder,

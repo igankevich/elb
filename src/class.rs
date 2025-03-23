@@ -45,6 +45,14 @@ impl Class {
         }
     }
 
+    /// Dynamic entry size in bytes.
+    pub const fn dynamic_len(self) -> usize {
+        match self {
+            Self::Elf32 => DYNAMIC_LEN_32,
+            Self::Elf64 => DYNAMIC_LEN_64,
+        }
+    }
+
     /// Symbol metadata size in bytes.
     pub const fn symbol_len(self) -> usize {
         match self {

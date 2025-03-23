@@ -1,17 +1,15 @@
-use std::io::BufWriter;
 use std::io::ErrorKind;
 use std::io::Read;
-use std::io::Write;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use crate::constants::*;
-use crate::io::v2::ElfReadV2;
+use crate::ElfRead;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfWrite;
 use crate::Error;
 
+/// A symbol.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Symbol {
@@ -24,7 +22,8 @@ pub struct Symbol {
 }
 
 impl Symbol {
-    pub fn read<R: ElfReadV2>(
+    /// Read from `reader`.
+    pub fn read<R: ElfRead>(
         mut reader: R,
         class: Class,
         byte_order: ByteOrder,
@@ -64,6 +63,7 @@ impl Symbol {
         }
     }
 
+    /// Write to `writer`.
     pub fn write<W: ElfWrite>(
         &self,
         mut writer: W,
@@ -94,6 +94,7 @@ impl Symbol {
     }
 }
 
+/// Symbol table.
 #[derive(Default)]
 #[cfg_attr(test, derive(PartialEq, Eq, Debug))]
 pub struct SymbolTable {
@@ -101,10 +102,12 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
+    /// Create empty table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Read table from `reader`.
     pub fn read<R: Read>(
         mut reader: R,
         class: Class,
@@ -128,20 +131,19 @@ impl SymbolTable {
         Ok(Self { entries })
     }
 
-    pub fn write<W: Write>(
+    /// Write table to `writer`.
+    pub fn write<W: ElfWrite>(
         &self,
-        writer: W,
+        mut writer: W,
         class: Class,
         byte_order: ByteOrder,
-    ) -> Result<(), Error> {
-        let mut writer = BufWriter::new(writer);
-        let symbol_len = class.symbol_len();
-        let mut buf = [0_u8; MAX_SYMBOL_LEN];
+    ) -> Result<(), Error>
+    where
+        for<'a> &'a mut W: ElfWrite,
+    {
         for symbol in self.entries.iter() {
-            symbol.write(&mut buf[..symbol_len], class, byte_order)?;
-            writer.write_all(&buf[..symbol_len])?;
+            symbol.write(&mut writer, class, byte_order)?;
         }
-        writer.flush()?;
         Ok(())
     }
 }
@@ -159,8 +161,6 @@ impl DerefMut for SymbolTable {
     }
 }
 
-// TODO Don't read the table, iterate over entries using bufreader?
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,6 +169,8 @@ mod tests {
 
     use arbitrary::Unstructured;
     use arbtest::arbtest;
+
+    use crate::constants::*;
 
     #[test]
     fn symbol_io() {
@@ -233,7 +235,7 @@ mod tests {
 
     impl SymbolTable {
         fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
-            let num_entries = u.arbitrary_len::<[u8; MAX_SYMBOL_LEN]>()?;
+            let num_entries = u.arbitrary_len::<[u8; SYMBOL_LEN_64]>()?;
             let mut entries = Vec::with_capacity(num_entries);
             for _ in 0..num_entries {
                 entries.push(Symbol::arbitrary(u, class)?);

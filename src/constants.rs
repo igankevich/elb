@@ -12,17 +12,17 @@ pub const SEGMENT_LEN_64: usize = 56;
 pub const SECTION_LEN_32: usize = 40;
 pub const SECTION_LEN_64: usize = 64;
 
+pub const DYNAMIC_LEN_32: usize = 8;
+pub const DYNAMIC_LEN_64: usize = 16;
+
 pub const SYMBOL_LEN_32: usize = 16;
 pub const SYMBOL_LEN_64: usize = 24;
-pub const MAX_SYMBOL_LEN: usize = SYMBOL_LEN_64;
 
 pub const REL_LEN_32: usize = 8;
 pub const REL_LEN_64: usize = 16;
-pub const MAX_REL_LEN: usize = REL_LEN_64;
 
 pub const RELA_LEN_32: usize = 12;
 pub const RELA_LEN_64: usize = 24;
-pub const MAX_RELA_LEN: usize = RELA_LEN_64;
 
 pub const SECTION_RESERVED_MIN: usize = 0xff00;
 pub const SECTION_RESERVED_MAX: usize = 0xffff;

@@ -7,7 +7,7 @@ use std::ops::DerefMut;
 use std::ops::Range;
 
 use crate::constants::*;
-use crate::io::v2::ElfReadV2;
+use crate::ElfRead;
 use crate::io::*;
 use crate::other::*;
 use crate::validation::*;
@@ -30,9 +30,9 @@ pub struct SectionHeader {
 
 impl SectionHeader {
     /// Read sections from `reader`.
-    pub fn read<R: ElfReadV2>(mut reader: R, header: &Header) -> Result<Self, Error>
+    pub fn read<R: ElfRead>(mut reader: R, header: &Header) -> Result<Self, Error>
     where
-        for<'a> &'a mut R: ElfReadV2,
+        for<'a> &'a mut R: ElfRead,
     {
         let mut entries = Vec::with_capacity(header.num_sections as usize);
         for _ in 0..header.num_sections {
@@ -200,7 +200,7 @@ impl Section {
     }
 
     /// Read section from `reader.
-    pub fn read<R: ElfReadV2>(
+    pub fn read<R: ElfRead>(
         mut reader: R,
         class: Class,
         byte_order: ByteOrder,

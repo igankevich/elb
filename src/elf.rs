@@ -314,10 +314,11 @@ impl Elf {
                 // No `.dynamic` section and no DYNAMIC segment.
                 (None, None) => return Ok(()),
             };
-        let mut dynamic_table = DynamicTable::from_bytes(
-            &dynamic_table_bytes,
+        let mut dynamic_table = DynamicTable::read(
+            &dynamic_table_bytes[..],
             self.header.class,
             self.header.byte_order,
+            dynamic_table_bytes.len() as u64,
         )?;
         dynamic_table.retain(|(kind, _value)| {
             let retain = *kind != entry_kind;
@@ -326,20 +327,20 @@ impl Elf {
             }
             retain
         });
-        let dynamic_table_bytes =
-            dynamic_table.to_bytes(self.header.class, self.header.byte_order)?;
-        let dynamic_table_len = dynamic_table_bytes.len() as u64;
+        let dynamic_table_len = dynamic_table.in_file_len(self.header.class) as u64;
         match (dynamic_section_index, dynamic_segment_index) {
             (Some(i), _) => {
                 let section = &mut self.sections[i];
                 section.size = dynamic_table_len;
-                section.write_out(&mut file, &dynamic_table_bytes)?;
+                file.seek(SeekFrom::Start(section.offset))?;
+                dynamic_table.write(&mut file, self.header.class, self.header.byte_order)?;
             }
             (_, Some(i)) => {
                 let segment = &mut self.segments[i];
                 segment.file_size = dynamic_table_len;
                 segment.memory_size = dynamic_table_len;
-                segment.write_out(&mut file, &dynamic_table_bytes)?;
+                file.seek(SeekFrom::Start(segment.offset))?;
+                dynamic_table.write(&mut file, self.header.class, self.header.byte_order)?;
             }
             _ => {}
         }
@@ -381,9 +382,10 @@ impl Elf {
         let section = &self.sections[i];
         file.seek(SeekFrom::Start(section.offset))?;
         let table = RelTable::read(
-            file.take(section.size),
+            file,
             self.header.class,
             self.header.byte_order,
+            section.size,
         )?;
         Ok(Some((table, i)))
     }
@@ -402,22 +404,29 @@ impl Elf {
         let section = &self.sections[i];
         file.seek(SeekFrom::Start(section.offset))?;
         let table = RelaTable::read(
-            file.take(section.size),
+            file,
             self.header.class,
             self.header.byte_order,
+            section.size,
         )?;
         Ok(Some((table, i)))
     }
 
     pub fn read_dynamic_table<R: Read + Seek>(&self, mut file: R) -> Result<DynamicTable, Error> {
         let names = self.read_section_names(&mut file)?;
-        let bytes = match self.sections.iter().position(|section| {
+        let Some(i) = self.sections.iter().position(|section| {
             Some(DYNAMIC_SECTION) == names.get_string(section.name_offset as usize)
-        }) {
-            Some(i) => self.sections[i].read_content(&mut file)?,
-            None => Vec::new(),
+        }) else {
+            return Ok(Default::default());
         };
-        let table = DynamicTable::from_bytes(&bytes, self.header.class, self.header.byte_order)?;
+        let section = &self.sections[i];
+        file.seek(SeekFrom::Start(section.offset))?;
+        let table = DynamicTable::read(
+            &mut file,
+            self.header.class,
+            self.header.byte_order,
+            section.size,
+        )?;
         Ok(table)
     }
 
@@ -443,16 +452,21 @@ impl Elf {
     ) -> Result<(), Error> {
         use DynamicTag::*;
         let mut names = self.read_section_names(&mut file)?;
-        let (dynamic_table_bytes, old_dynamic_table_virtual_address) =
+        let (mut dynamic_table, old_dynamic_table_virtual_address) =
             match self.sections.iter().position(|section| {
                 Some(DYNAMIC_SECTION) == names.get_string(section.name_offset as usize)
             }) {
                 Some(i) => {
                     let section = &self.sections[i];
                     let virtual_address = section.virtual_address;
-                    let bytes = section.read_content(&mut file)?;
+                    let dynamic_table = DynamicTable::read(
+                        &mut file,
+                        self.header.class,
+                        self.header.byte_order,
+                        section.size,
+                    )?;
                     self.free_section(&mut file, i, &names)?;
-                    (bytes, virtual_address)
+                    (dynamic_table, virtual_address)
                 }
                 None => {
                     // `.dynamic` section doesn't exits. Try to find DYNAMIC segment.
@@ -464,19 +478,19 @@ impl Elf {
                         Some(i) => {
                             let segment = &self.segments[i];
                             let virtual_address = segment.virtual_address;
-                            let bytes = segment.read_content(&mut file)?;
+                            let dynamic_table = DynamicTable::read(
+                                &mut file,
+                                self.header.class,
+                                self.header.byte_order,
+                                segment.file_size.min(segment.memory_size),
+                            )?;
                             self.free_segment(&mut file, i)?;
-                            (bytes, virtual_address)
+                            (dynamic_table, virtual_address)
                         }
-                        None => (Vec::new(), 0),
+                        None => (DynamicTable::default(), 0),
                     }
                 }
             };
-        let mut dynamic_table = DynamicTable::from_bytes(
-            &dynamic_table_bytes,
-            self.header.class,
-            self.header.byte_order,
-        )?;
         log::trace!("Found dynamic table");
         let dynstr_table_index = match dynamic_table
             .iter()
@@ -539,9 +553,7 @@ impl Elf {
         dynamic_table.set(StringTableAddress, dynstr_table_section.virtual_address);
         dynamic_table.set(StringTableSize, dynstr_table_section.size);
         dynamic_table.set(entry_kind, value_offset as u64);
-        let dynamic_table_contents =
-            dynamic_table.to_bytes(self.header.class, self.header.byte_order)?;
-        let dynamic_table_len = dynamic_table_contents.len() as u64;
+        let dynamic_table_len = dynamic_table.in_file_len(self.header.class) as u64;
         let dynamic_segment_index = self.alloc_segment(Segment {
             kind: SegmentKind::Dynamic,
             flags: SegmentFlags::READABLE | SegmentFlags::WRITABLE,
@@ -555,7 +567,11 @@ impl Elf {
         })?;
         let new_dynamic_table_virtual_address =
             self.segments[dynamic_segment_index].virtual_address;
-        self.segments[dynamic_segment_index].write_out(&mut file, &dynamic_table_contents)?;
+        {
+            let segment = &self.segments[dynamic_segment_index];
+            file.seek(SeekFrom::Start(segment.offset))?;
+            dynamic_table.write(&mut file, self.header.class, self.header.byte_order)?;
+        }
         if old_dynamic_table_virtual_address != new_dynamic_table_virtual_address {
             log::trace!(
                 "Changed memory offset of the DYNAMIC segment from {:#x} to {:#x}",

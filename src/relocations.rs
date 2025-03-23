@@ -1,15 +1,13 @@
-use std::io::BufWriter;
-use std::io::Read;
-use std::io::Write;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use crate::constants::*;
-use crate::io::*;
+use crate::ElfRead;
 use crate::ByteOrder;
 use crate::Class;
+use crate::ElfWrite;
 use crate::Error;
 
+/// Relocation without an addend.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Relocation {
@@ -18,24 +16,27 @@ pub struct Relocation {
 }
 
 impl Relocation {
-    pub fn from_bytes(buf: &[u8], class: Class, byte_order: ByteOrder) -> Self {
-        assert_eq!(class.rel_len(), buf.len());
+    pub fn read<R: ElfRead>(
+        mut reader: R,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<Self, Error> {
         let offset;
         let info;
         match class {
             Class::Elf32 => {
-                offset = buf[0..].read_u32(byte_order).into();
-                info = buf[4..].read_u32(byte_order).into();
+                offset = reader.read_u32(byte_order)?.into();
+                info = reader.read_u32(byte_order)?.into();
             }
             Class::Elf64 => {
-                offset = buf[0..].read_u64(byte_order);
-                info = buf[8..].read_u64(byte_order);
+                offset = reader.read_u64(byte_order)?;
+                info = reader.read_u64(byte_order)?;
             }
         }
-        Self { offset, info }
+        Ok(Self { offset, info })
     }
 
-    pub fn write<W: Write>(
+    pub fn write<W: ElfWrite>(
         &self,
         mut writer: W,
         class: Class,
@@ -55,6 +56,7 @@ impl Relocation {
     }
 }
 
+/// Relocation with an addend.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct RelocationA {
@@ -64,31 +66,34 @@ pub struct RelocationA {
 }
 
 impl RelocationA {
-    pub fn from_bytes(buf: &[u8], class: Class, byte_order: ByteOrder) -> Self {
-        assert_eq!(class.rela_len(), buf.len());
+    pub fn read<R: ElfRead>(
+        mut reader: R,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<Self, Error> {
         let offset;
         let info;
         let addend;
         match class {
             Class::Elf32 => {
-                offset = buf[0..].read_u32(byte_order).into();
-                info = buf[4..].read_u32(byte_order).into();
-                addend = buf[8..].read_i32(byte_order).into();
+                offset = reader.read_u32(byte_order)?.into();
+                info = reader.read_u32(byte_order)?.into();
+                addend = reader.read_i32(byte_order)?.into();
             }
             Class::Elf64 => {
-                offset = buf[0..].read_u64(byte_order);
-                info = buf[8..].read_u64(byte_order);
-                addend = buf[16..].read_i64(byte_order);
+                offset = reader.read_u64(byte_order)?;
+                info = reader.read_u64(byte_order)?;
+                addend = reader.read_i64(byte_order)?;
             }
         }
-        Self {
+        Ok(Self {
             offset,
             info,
             addend,
-        }
+        })
     }
 
-    pub fn write<W: Write>(
+    pub fn write<W: ElfWrite>(
         &self,
         mut writer: W,
         class: Class,
@@ -111,7 +116,7 @@ impl RelocationA {
 }
 
 macro_rules! define_rel_table {
-    ($table: ident, $rel: ident, $rel_len: ident, $rel_max_len: ident) => {
+    ($table: ident, $rel: ident, $rel_len: ident) => {
         #[derive(Default)]
         #[cfg_attr(test, derive(PartialEq, Eq, Debug))]
         pub struct $table {
@@ -123,43 +128,36 @@ macro_rules! define_rel_table {
                 Self::default()
             }
 
-            pub fn read<R: Read>(
+            pub fn read<R: ElfRead>(
                 mut reader: R,
                 class: Class,
                 byte_order: ByteOrder,
-            ) -> Result<Self, Error> {
+                len: u64,
+            ) -> Result<Self, Error>
+            where
+                for<'a> &'a mut R: ElfRead,
+            {
                 let mut entries = Vec::new();
                 let rel_len = class.$rel_len();
-                let mut buffer = vec![0_u8; 512 * rel_len];
-                loop {
-                    let n = reader.read(&mut buffer[..])?;
-                    if n == 0 {
-                        break;
-                    }
-                    let mut slice = &buffer[..n];
-                    for _ in 0..n / rel_len {
-                        let relocation = $rel::from_bytes(&slice[..rel_len], class, byte_order);
-                        entries.push(relocation);
-                        slice = &slice[rel_len..];
-                    }
+                for _ in 0..len / rel_len as u64 {
+                    let relocation = $rel::read(&mut reader, class, byte_order)?;
+                    entries.push(relocation);
                 }
                 Ok(Self { entries })
             }
 
-            pub fn write<W: Write>(
+            pub fn write<W: ElfWrite>(
                 &self,
-                writer: W,
+                mut writer: W,
                 class: Class,
                 byte_order: ByteOrder,
-            ) -> Result<(), Error> {
-                let mut writer = BufWriter::new(writer);
-                let rel_len = class.$rel_len();
-                let mut buf = [0_u8; $rel_max_len];
+            ) -> Result<(), Error>
+            where
+                for<'a> &'a mut W: ElfWrite,
+            {
                 for relocation in self.entries.iter() {
-                    relocation.write(&mut buf[..rel_len], class, byte_order)?;
-                    writer.write_all(&buf[..rel_len])?;
+                    relocation.write(&mut writer, class, byte_order)?;
                 }
-                writer.flush()?;
                 Ok(())
             }
         }
@@ -179,8 +177,8 @@ macro_rules! define_rel_table {
     };
 }
 
-define_rel_table!(RelTable, Relocation, rel_len, MAX_REL_LEN);
-define_rel_table!(RelaTable, RelocationA, rela_len, MAX_RELA_LEN);
+define_rel_table!(RelTable, Relocation, rel_len);
+define_rel_table!(RelaTable, RelocationA, rela_len);
 
 #[cfg(test)]
 mod tests {
@@ -190,6 +188,8 @@ mod tests {
 
     use arbitrary::Unstructured;
     use arbtest::arbtest;
+
+    use crate::constants::*;
 
     #[test]
     fn relocation_io() {
@@ -203,7 +203,7 @@ mod tests {
                 .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
                 .unwrap();
             let bytes = cursor.into_inner();
-            let actual = Relocation::from_bytes(&bytes, class, byte_order);
+            let actual = Relocation::read(&bytes[..], class, byte_order).unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });
@@ -221,7 +221,7 @@ mod tests {
                 .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
                 .unwrap();
             let bytes = cursor.into_inner();
-            let actual = RelocationA::from_bytes(&bytes, class, byte_order);
+            let actual = RelocationA::read(&bytes[..], class, byte_order).unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });
@@ -238,8 +238,9 @@ mod tests {
                 .write(&mut cursor, class, byte_order)
                 .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
                 .unwrap();
+            let len = cursor.position();
             cursor.set_position(0);
-            let actual = RelTable::read(&mut cursor, class, byte_order)
+            let actual = RelTable::read(&mut cursor, class, byte_order, len)
                 .inspect_err(|e| panic!("Failed to read {:#?}: {e}", expected))
                 .unwrap();
             assert_eq!(expected, actual);
@@ -258,8 +259,9 @@ mod tests {
                 .write(&mut cursor, class, byte_order)
                 .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
                 .unwrap();
+            let len = cursor.position();
             cursor.set_position(0);
-            let actual = RelaTable::read(&mut cursor, class, byte_order)
+            let actual = RelaTable::read(&mut cursor, class, byte_order, len)
                 .inspect_err(|e| panic!("Failed to read {:#?}: {e}", expected))
                 .unwrap();
             assert_eq!(expected, actual);
@@ -301,7 +303,7 @@ mod tests {
 
     impl RelTable {
         fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
-            let num_entries = u.arbitrary_len::<[u8; MAX_REL_LEN]>()?;
+            let num_entries = u.arbitrary_len::<[u8; REL_LEN_64]>()?;
             let mut entries = Vec::with_capacity(num_entries);
             for _ in 0..num_entries {
                 entries.push(Relocation::arbitrary(u, class)?);
@@ -312,7 +314,7 @@ mod tests {
 
     impl RelaTable {
         fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
-            let num_entries = u.arbitrary_len::<[u8; MAX_RELA_LEN]>()?;
+            let num_entries = u.arbitrary_len::<[u8; RELA_LEN_64]>()?;
             let mut entries = Vec::with_capacity(num_entries);
             for _ in 0..num_entries {
                 entries.push(RelocationA::arbitrary(u, class)?);

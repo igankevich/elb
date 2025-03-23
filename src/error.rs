@@ -55,6 +55,10 @@ pub enum Error {
     SegmentsNotSorted,
     #[error("Overflow: {0}")]
     TooBig(&'static str),
+    #[error("Word overflow: {0}")]
+    TooBigWord(u64),
+    #[error("Signed word overflow: {0}")]
+    TooBigSignedWord(i64),
     #[error("Overlap: {0}")]
     Overlap(&'static str),
     #[error("Failed to allocate file block")]

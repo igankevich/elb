@@ -1,7 +1,7 @@
 use core::ops::Range;
 
 use crate::constants::*;
-use crate::io::v2::ElfReadV2;
+use crate::ElfRead;
 use crate::validation::*;
 use crate::ByteOrder;
 use crate::Class;
@@ -53,7 +53,7 @@ pub struct Header {
 
 impl Header {
     /// Read header from `reader`.
-    pub fn read<R: ElfReadV2>(mut reader: R) -> Result<Self, Error> {
+    pub fn read<R: ElfRead>(mut reader: R) -> Result<Self, Error> {
         let mut magic = [0_u8; MAGIC.len()];
         reader.read_bytes(&mut magic[..]).map_err(|e| match e {
             Error::UnexpectedEof => Error::NotElf,
