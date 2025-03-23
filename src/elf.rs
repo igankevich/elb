@@ -652,7 +652,7 @@ impl Elf {
                         flags: SectionFlags::ALLOC,
                         virtual_address: 0,
                         offset: 0,
-                        size: names.len() as u64,
+                        size: names.as_bytes().len() as u64,
                         link: 0,
                         info: 0,
                         align: 1,
@@ -710,7 +710,7 @@ impl Elf {
                         flags: SectionFlags::ALLOC,
                         virtual_address: 0,
                         offset: 0,
-                        size: table.len() as u64,
+                        size: table.as_bytes().len() as u64,
                         link: 0,
                         info: 0,
                         // TODO
