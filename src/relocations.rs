@@ -1,9 +1,10 @@
-use std::ops::Deref;
-use std::ops::DerefMut;
+use core::ops::Deref;
+use core::ops::DerefMut;
+use alloc::vec::Vec;
 
-use crate::ElfRead;
 use crate::ByteOrder;
 use crate::Class;
+use crate::ElfRead;
 use crate::ElfWrite;
 use crate::Error;
 
@@ -17,7 +18,7 @@ pub struct Relocation {
 
 impl Relocation {
     pub fn read<R: ElfRead>(
-        mut reader: R,
+        reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<Self, Error> {
@@ -38,7 +39,7 @@ impl Relocation {
 
     pub fn write<W: ElfWrite>(
         &self,
-        mut writer: W,
+        writer: &mut W,
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<(), Error> {
@@ -67,7 +68,7 @@ pub struct RelocationA {
 
 impl RelocationA {
     pub fn read<R: ElfRead>(
-        mut reader: R,
+        reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<Self, Error> {
@@ -95,7 +96,7 @@ impl RelocationA {
 
     pub fn write<W: ElfWrite>(
         &self,
-        mut writer: W,
+        writer: &mut W,
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<(), Error> {
@@ -129,18 +130,15 @@ macro_rules! define_rel_table {
             }
 
             pub fn read<R: ElfRead>(
-                mut reader: R,
+                reader: &mut R,
                 class: Class,
                 byte_order: ByteOrder,
                 len: u64,
-            ) -> Result<Self, Error>
-            where
-                for<'a> &'a mut R: ElfRead,
-            {
+            ) -> Result<Self, Error> {
                 let mut entries = Vec::new();
                 let rel_len = class.$rel_len();
                 for _ in 0..len / rel_len as u64 {
-                    let relocation = $rel::read(&mut reader, class, byte_order)?;
+                    let relocation = $rel::read(reader, class, byte_order)?;
                     entries.push(relocation);
                 }
                 Ok(Self { entries })
@@ -148,15 +146,12 @@ macro_rules! define_rel_table {
 
             pub fn write<W: ElfWrite>(
                 &self,
-                mut writer: W,
+                writer: &mut W,
                 class: Class,
                 byte_order: ByteOrder,
-            ) -> Result<(), Error>
-            where
-                for<'a> &'a mut W: ElfWrite,
-            {
+            ) -> Result<(), Error> {
                 for relocation in self.entries.iter() {
-                    relocation.write(&mut writer, class, byte_order)?;
+                    relocation.write(writer, class, byte_order)?;
                 }
                 Ok(())
             }
@@ -203,7 +198,7 @@ mod tests {
                 .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
                 .unwrap();
             let bytes = cursor.into_inner();
-            let actual = Relocation::read(&bytes[..], class, byte_order).unwrap();
+            let actual = Relocation::read(&mut &bytes[..], class, byte_order).unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });
@@ -221,7 +216,7 @@ mod tests {
                 .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
                 .unwrap();
             let bytes = cursor.into_inner();
-            let actual = RelocationA::read(&bytes[..], class, byte_order).unwrap();
+            let actual = RelocationA::read(&mut &bytes[..], class, byte_order).unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });

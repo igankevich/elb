@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use core::ffi::CStr;
 
 pub const MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
 pub const VERSION: u8 = 1;

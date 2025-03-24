@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 #[derive(Default)]
 pub struct Allocations {
     allocations: Vec<(u64, Alloc)>,

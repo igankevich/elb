@@ -1,4 +1,6 @@
-use std::ffi::CStr;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::ffi::CStr;
 
 /// A table that stores NUL-terminated strings.
 ///
@@ -104,8 +106,8 @@ impl Default for StringTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::ffi::CString;
     use arbtest::arbtest;
-    use std::ffi::CString;
 
     #[test]
     fn test_get_offset() {

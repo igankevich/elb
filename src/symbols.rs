@@ -1,11 +1,10 @@
-use std::io::ErrorKind;
-use std::io::Read;
-use std::ops::Deref;
-use std::ops::DerefMut;
+use alloc::vec::Vec;
+use core::ops::Deref;
+use core::ops::DerefMut;
 
-use crate::ElfRead;
 use crate::ByteOrder;
 use crate::Class;
+use crate::ElfRead;
 use crate::ElfWrite;
 use crate::Error;
 
@@ -24,7 +23,7 @@ pub struct Symbol {
 impl Symbol {
     /// Read from `reader`.
     pub fn read<R: ElfRead>(
-        mut reader: R,
+        reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<Self, Error> {
@@ -66,7 +65,7 @@ impl Symbol {
     /// Write to `writer`.
     pub fn write<W: ElfWrite>(
         &self,
-        mut writer: W,
+        writer: &mut W,
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<(), Error> {
@@ -74,10 +73,7 @@ impl Symbol {
         match class {
             Class::Elf32 => {
                 writer.write_word(class, byte_order, self.address)?;
-                writer.write_u32(
-                    byte_order,
-                    self.size.try_into().map_err(|_| ErrorKind::InvalidData)?,
-                )?;
+                writer.write_u32_as_u64(byte_order, self.size)?;
                 writer.write_u8(self.info)?;
                 writer.write_u8(self.other)?;
                 writer.write_u16(byte_order, self.section_index)?;
@@ -108,25 +104,17 @@ impl SymbolTable {
     }
 
     /// Read table from `reader`.
-    pub fn read<R: Read>(
-        mut reader: R,
+    pub fn read<R: ElfRead>(
+        reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
+        len: u64,
     ) -> Result<Self, Error> {
         let mut entries = Vec::new();
         let symbol_len = class.symbol_len();
-        let mut buffer = vec![0_u8; 512 * symbol_len];
-        loop {
-            let n = reader.read(&mut buffer[..])?;
-            if n == 0 {
-                break;
-            }
-            let mut slice = &buffer[..n];
-            for _ in 0..n / symbol_len {
-                let symbol = Symbol::read(&slice[..symbol_len], class, byte_order)?;
-                entries.push(symbol);
-                slice = &slice[symbol_len..];
-            }
+        for _ in 0..len / symbol_len as u64 {
+            let symbol = Symbol::read(reader, class, byte_order)?;
+            entries.push(symbol);
         }
         Ok(Self { entries })
     }
@@ -134,15 +122,12 @@ impl SymbolTable {
     /// Write table to `writer`.
     pub fn write<W: ElfWrite>(
         &self,
-        mut writer: W,
+        writer: &mut W,
         class: Class,
         byte_order: ByteOrder,
-    ) -> Result<(), Error>
-    where
-        for<'a> &'a mut W: ElfWrite,
-    {
+    ) -> Result<(), Error> {
         for symbol in self.entries.iter() {
-            symbol.write(&mut writer, class, byte_order)?;
+            symbol.write(writer, class, byte_order)?;
         }
         Ok(())
     }
@@ -184,7 +169,7 @@ mod tests {
                 .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
                 .unwrap();
             let bytes = cursor.into_inner();
-            let actual = Symbol::read(&bytes[..], class, byte_order).unwrap();
+            let actual = Symbol::read(&mut &bytes[..], class, byte_order).unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });
@@ -201,8 +186,9 @@ mod tests {
                 .write(&mut cursor, class, byte_order)
                 .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
                 .unwrap();
+            let len = cursor.get_ref().len();
             cursor.set_position(0);
-            let actual = SymbolTable::read(&mut cursor, class, byte_order)
+            let actual = SymbolTable::read(&mut cursor, class, byte_order, len as u64)
                 .inspect_err(|e| panic!("Failed to read {:#?}: {e}", expected))
                 .unwrap();
             assert_eq!(expected, actual);

@@ -1,10 +1,10 @@
 use core::ops::Range;
 
 use crate::constants::*;
-use crate::ElfRead;
 use crate::validation::*;
 use crate::ByteOrder;
 use crate::Class;
+use crate::ElfRead;
 use crate::ElfWrite;
 use crate::Error;
 use crate::FileKind;
@@ -53,7 +53,7 @@ pub struct Header {
 
 impl Header {
     /// Read header from `reader`.
-    pub fn read<R: ElfRead>(mut reader: R) -> Result<Self, Error> {
+    pub fn read<R: ElfRead>(reader: &mut R) -> Result<Self, Error> {
         let mut magic = [0_u8; MAGIC.len()];
         reader.read_bytes(&mut magic[..]).map_err(|e| match e {
             Error::UnexpectedEof => Error::NotElf,
@@ -112,30 +112,29 @@ impl Header {
     /// Write header to `writer`.
     ///
     /// The header is validated before writing.
-    pub fn write<W: ElfWrite>(&self, writer: W) -> Result<(), Error> {
+    pub fn write<W: ElfWrite>(&self, writer: &mut W) -> Result<(), Error> {
         self.check()?;
-        let mut out = writer;
-        out.write_bytes(&MAGIC)?;
-        out.write_u8(self.class as u8)?;
-        out.write_u8(self.byte_order as u8)?;
-        out.write_u8(VERSION)?;
-        out.write_u8(self.os_abi.as_u8())?;
-        out.write_u8(self.abi_version)?;
-        out.write_bytes(&[0_u8; 7])?;
-        out.write_u16(self.byte_order, self.kind.as_u16())?;
-        out.write_u16(self.byte_order, self.machine.as_u16())?;
-        out.write_u8(VERSION)?;
-        out.write_bytes(&[0_u8; 3])?;
-        out.write_word(self.class, self.byte_order, self.entry_point)?;
-        out.write_word(self.class, self.byte_order, self.program_header_offset)?;
-        out.write_word(self.class, self.byte_order, self.section_header_offset)?;
-        out.write_u32(self.byte_order, self.flags)?;
-        out.write_u16(self.byte_order, self.len)?;
-        out.write_u16(self.byte_order, self.segment_len)?;
-        out.write_u16(self.byte_order, self.num_segments)?;
-        out.write_u16(self.byte_order, self.section_len)?;
-        out.write_u16(self.byte_order, self.num_sections)?;
-        out.write_u16(self.byte_order, self.section_names_index)?;
+        writer.write_bytes(&MAGIC)?;
+        writer.write_u8(self.class as u8)?;
+        writer.write_u8(self.byte_order as u8)?;
+        writer.write_u8(VERSION)?;
+        writer.write_u8(self.os_abi.as_u8())?;
+        writer.write_u8(self.abi_version)?;
+        writer.write_bytes(&[0_u8; 7])?;
+        writer.write_u16(self.byte_order, self.kind.as_u16())?;
+        writer.write_u16(self.byte_order, self.machine.as_u16())?;
+        writer.write_u8(VERSION)?;
+        writer.write_bytes(&[0_u8; 3])?;
+        writer.write_word(self.class, self.byte_order, self.entry_point)?;
+        writer.write_word(self.class, self.byte_order, self.program_header_offset)?;
+        writer.write_word(self.class, self.byte_order, self.section_header_offset)?;
+        writer.write_u32(self.byte_order, self.flags)?;
+        writer.write_u16(self.byte_order, self.len)?;
+        writer.write_u16(self.byte_order, self.segment_len)?;
+        writer.write_u16(self.byte_order, self.num_segments)?;
+        writer.write_u16(self.byte_order, self.section_len)?;
+        writer.write_u16(self.byte_order, self.num_sections)?;
+        writer.write_u16(self.byte_order, self.section_names_index)?;
         Ok(())
     }
 
@@ -215,11 +214,12 @@ const fn blocks_overlap(a: &Range<u64>, b: &Range<u64>) -> bool {
     a.start < b.end && b.start < a.end
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     use std::io::Cursor;
+    use alloc::vec::Vec;
 
     use arbitrary::Arbitrary;
     use arbitrary::Unstructured;

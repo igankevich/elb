@@ -1,5 +1,6 @@
-use std::ops::Deref;
-use std::ops::DerefMut;
+use alloc::vec::Vec;
+use core::ops::Deref;
+use core::ops::DerefMut;
 
 use crate::io::*;
 use crate::ByteOrder;
@@ -28,14 +29,11 @@ impl DynamicTable {
     }
 
     pub fn read<R: ElfRead>(
-        mut reader: R,
+        reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
         len: u64,
-    ) -> Result<Self, Error>
-    where
-        for<'a> &'a mut R: ElfRead,
-    {
+    ) -> Result<Self, Error> {
         let mut entries = Vec::with_capacity((len / class.dynamic_len() as u64) as usize);
         let step = class.dynamic_len();
         for _ in (0..len).step_by(step) {
@@ -52,13 +50,10 @@ impl DynamicTable {
 
     pub fn write<W: ElfWrite>(
         &self,
-        mut writer: W,
+        writer: &mut W,
         class: Class,
         byte_order: ByteOrder,
-    ) -> Result<(), Error>
-    where
-        for<'a> &'a mut W: ElfWrite,
-    {
+    ) -> Result<(), Error> {
         for (kind, value) in self.entries.iter() {
             writer.write_word_as_u32(class, byte_order, kind.as_u32())?;
             writer.write_word(class, byte_order, *value)?;

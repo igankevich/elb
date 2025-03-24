@@ -33,7 +33,7 @@ fn read_elf_files_from_file_system() {
                 continue;
             };
             eprintln!("Reading {:?}", path);
-            let elf = match Elf::read_unchecked(&mut file) {
+            let elf = match Elf::read_unchecked(&mut file, PAGE_SIZE) {
                 Ok(elf) => elf,
                 Err(Error::NotElf) => continue,
                 Err(e) => {
@@ -74,3 +74,5 @@ const DEFAULT_LD_LIBRARY_PATH: [&str; 6] = [
     "/usr/local/lib",
     "/usr/local/lib64",
 ];
+
+const PAGE_SIZE: u64 = 4096;

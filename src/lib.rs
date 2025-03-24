@@ -1,7 +1,11 @@
 #![doc = include_str!("../README.md")]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
-mod alloc;
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
+
+mod allocations;
 mod byte_order;
 mod class;
 pub(crate) mod constants;
@@ -14,6 +18,7 @@ mod header;
 mod io;
 mod macros;
 pub(crate) mod other;
+mod patch;
 mod relocations;
 mod sections;
 mod segments;
@@ -21,7 +26,7 @@ mod strings;
 mod symbols;
 pub(crate) mod validation;
 
-pub use self::alloc::*;
+pub use self::allocations::*;
 pub use self::byte_order::*;
 pub use self::class::*;
 pub use self::dynamic_table::*;
@@ -32,6 +37,7 @@ pub use self::flags::*;
 pub use self::header::*;
 pub use self::io::*;
 pub(crate) use self::macros::*;
+pub use self::patch::*;
 pub use self::relocations::*;
 pub use self::sections::*;
 pub use self::segments::*;

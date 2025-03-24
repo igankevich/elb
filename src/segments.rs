@@ -1,19 +1,18 @@
-use std::cmp::Ordering;
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
-use std::io::Write;
-use std::ops::Deref;
-use std::ops::DerefMut;
-use std::ops::Range;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::cmp::Ordering;
+use core::ops::Deref;
+use core::ops::DerefMut;
+use core::ops::Range;
 
 use crate::align_down;
 use crate::align_up;
-use crate::ElfRead;
 use crate::other::*;
 use crate::validation::*;
 use crate::ByteOrder;
 use crate::Class;
+use crate::ElfRead;
+use crate::ElfSeek;
 use crate::ElfWrite;
 use crate::Error;
 use crate::Header;
@@ -29,14 +28,11 @@ pub struct ProgramHeader {
 
 impl ProgramHeader {
     /// Read segments from `reader`.
-    pub fn read<R: ElfRead>(mut reader: R, header: &Header) -> Result<Self, Error>
-    where
-        for<'a> &'a mut R: ElfRead,
-    {
+    pub fn read<R: ElfRead>(reader: &mut R, header: &Header) -> Result<Self, Error> {
         // TODO We support only u16::MAX entries. There can be more entries.
         let mut entries = Vec::with_capacity(header.num_segments as usize);
         for _ in 0..header.num_segments {
-            let entry = Segment::read(&mut reader, header.class, header.byte_order)?;
+            let entry = Segment::read(reader, header.class, header.byte_order)?;
             entries.push(entry);
         }
         let ret = Self { entries };
@@ -44,13 +40,10 @@ impl ProgramHeader {
     }
 
     /// Write segments to `writer`.
-    pub fn write<W: ElfWrite>(&self, mut writer: W, header: &Header) -> Result<(), Error>
-    where
-        for<'a> &'a mut W: ElfWrite,
-    {
+    pub fn write<W: ElfWrite>(&self, writer: &mut W, header: &Header) -> Result<(), Error> {
         assert_eq!(self.entries.len(), header.num_segments as usize);
         for entry in self.entries.iter() {
-            entry.write(&mut writer, header.class, header.byte_order)?;
+            entry.write(writer, header.class, header.byte_order)?;
         }
         Ok(())
     }
@@ -200,7 +193,11 @@ impl ProgramHeader {
         Ok(())
     }
 
-    pub(crate) fn free<W: Write + Seek>(&mut self, writer: W, i: usize) -> Result<Segment, Error> {
+    pub(crate) fn free<W: ElfWrite + ElfSeek>(
+        &mut self,
+        writer: &mut W,
+        i: usize,
+    ) -> Result<Segment, Error> {
         let segment = self.entries.remove(i);
         segment.clear_content(writer)?;
         Ok(segment)
@@ -301,7 +298,7 @@ pub struct Segment {
 
 impl Segment {
     pub fn read<R: ElfRead>(
-        mut reader: R,
+        reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<Self, Error> {
@@ -333,7 +330,7 @@ impl Segment {
 
     pub fn write<W: ElfWrite>(
         &self,
-        mut writer: W,
+        writer: &mut W,
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<(), Error> {
@@ -353,26 +350,30 @@ impl Segment {
         Ok(())
     }
 
-    pub fn read_content<R: Read + Seek>(&self, mut reader: R) -> Result<Vec<u8>, Error> {
-        reader.seek(SeekFrom::Start(self.offset))?;
+    pub fn read_content<R: ElfRead + ElfSeek>(&self, reader: &mut R) -> Result<Vec<u8>, Error> {
+        reader.seek(self.offset)?;
         let n: usize = self
             .file_size
             .try_into()
             .map_err(|_| Error::TooBig("in-file-size"))?;
         let mut buf = vec![0_u8; n];
-        reader.read_exact(&mut buf[..])?;
+        reader.read_bytes(&mut buf[..])?;
         Ok(buf)
     }
 
-    pub fn write_out<W: Write + Seek>(&self, mut writer: W, content: &[u8]) -> Result<(), Error> {
+    pub fn write_out<W: ElfWrite + ElfSeek>(
+        &self,
+        writer: &mut W,
+        content: &[u8],
+    ) -> Result<(), Error> {
         assert_eq!(self.file_size, content.len() as u64);
-        writer.seek(SeekFrom::Start(self.offset))?;
-        writer.write_all(content)?;
+        writer.seek(self.offset)?;
+        writer.write_bytes(content)?;
         Ok(())
     }
 
     /// Zero out the entry's content.
-    pub fn clear_content<W: Write + Seek>(&self, writer: W) -> Result<(), Error> {
+    pub fn clear_content<W: ElfWrite + ElfSeek>(&self, writer: &mut W) -> Result<(), Error> {
         zero(writer, self.offset, self.file_size)?;
         Ok(())
     }
@@ -489,7 +490,7 @@ mod tests {
             let expected = Segment::arbitrary(u, class)?;
             let mut buf = Vec::new();
             expected.write(&mut buf, class, byte_order).unwrap();
-            let actual = Segment::read(&buf[..], class, byte_order).unwrap();
+            let actual = Segment::read(&mut &buf[..], class, byte_order).unwrap();
             assert_eq!(expected, actual);
             Ok(())
         });

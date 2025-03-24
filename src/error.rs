@@ -51,7 +51,7 @@ pub enum Error {
     MisalignedSection(u64, u64, u64),
     #[error("Segments overlap: {0:#x}..{1:#x}, {2:#x}..{3:#x}")]
     SegmentsOverlap(u64, u64, u64, u64),
-    #[error("LAOD segments are not sorted by virtual address")]
+    #[error("LOAD segments are not sorted by virtual address")]
     SegmentsNotSorted,
     #[error("Overflow: {0}")]
     TooBig(&'static str),
@@ -71,6 +71,7 @@ pub enum Error {
     UnexpectedEof,
 }
 
+#[cfg(feature = "std")]
 impl From<std::io::Error> for Error {
     fn from(other: std::io::Error) -> Self {
         if other.kind() == std::io::ErrorKind::UnexpectedEof {
@@ -81,6 +82,7 @@ impl From<std::io::Error> for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl From<std::io::ErrorKind> for Error {
     fn from(other: std::io::ErrorKind) -> Self {
         if other == std::io::ErrorKind::UnexpectedEof {

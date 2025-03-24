@@ -129,15 +129,31 @@ pub trait ElfWrite {
     fn write_i32_as_i64(&mut self, byte_order: ByteOrder, value: i64) -> Result<(), Error> {
         self.write_i32(
             byte_order,
-            value.try_into().map_err(|_| Error::TooBigSignedWord(value))?,
+            value
+                .try_into()
+                .map_err(|_| Error::TooBigSignedWord(value))?,
         )
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error>;
 }
 
+#[cfg(feature = "std")]
 impl<W: std::io::Write> ElfWrite for W {
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
         Ok(self.write_all(bytes)?)
+    }
+}
+
+/// ELF-specific seek functions.
+pub trait ElfSeek {
+    fn seek(&mut self, offset: u64) -> Result<(), Error>;
+}
+
+#[cfg(feature = "std")]
+impl<S: std::io::Seek> ElfSeek for S {
+    fn seek(&mut self, offset: u64) -> Result<(), Error> {
+        self.seek(std::io::SeekFrom::Start(offset))?;
+        Ok(())
     }
 }

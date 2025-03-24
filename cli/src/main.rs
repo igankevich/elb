@@ -10,6 +10,7 @@ use std::process::ExitCode;
 
 use elfie::ArmFlags;
 use elfie::Elf;
+use elfie::ElfPatcher;
 use elfie::Machine;
 use elfie::StringTable;
 use elfie_dl::DynamicLoader;
@@ -28,6 +29,9 @@ struct Args {
     /// Verbose output.
     #[clap(short = 'v', long = "verbose")]
     verbose: bool,
+
+    #[clap(flatten)]
+    common: CommonArgs,
 
     #[command(subcommand)]
     command: Command,
@@ -55,6 +59,13 @@ enum Command {
     Deps(DepsArgs),
     /// Modify ELF file.
     Patch(PatchArgs),
+}
+
+#[derive(clap::Args)]
+struct CommonArgs {
+    /// Memory page size.
+    #[clap(long = "page-size", value_name = "NUM", default_value_t = 4096)]
+    page_size: u64,
 }
 
 #[derive(clap::Args)]
@@ -105,16 +116,16 @@ fn do_main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     Logger::init(args.verbose)?;
     match args.command {
-        Command::Show { what, file } => show(what, file),
-        Command::Check { file } => check(file),
+        Command::Show { what, file } => show(args.common, what, file),
+        Command::Check { file } => check(args.common, file),
         Command::Deps(deps_args) => deps(deps_args),
-        Command::Patch(patch_args) => patch(patch_args),
+        Command::Patch(patch_args) => patch(args.common, patch_args),
     }
 }
 
-fn show(what: What, file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+fn show(common: CommonArgs, what: What, file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::open(&file)?;
-    let elf = Elf::read_unchecked(&mut file)?;
+    let elf = Elf::read_unchecked(&mut file, common.page_size)?;
     let section_names = elf.read_section_names(&mut file)?;
     match what {
         What::Header => {
@@ -271,9 +282,9 @@ fn show_segments(
     Ok(())
 }
 
-fn check(file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+fn check(common: CommonArgs, file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::open(&file)?;
-    let _elf = Elf::read(&mut file)?;
+    let _elf = Elf::read(&mut file, common.page_size)?;
     Ok(())
 }
 
@@ -286,8 +297,8 @@ fn deps(args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn patch(args: PatchArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let mut elf = Elf::read(File::open(&args.file)?)?;
+fn patch(common: CommonArgs, args: PatchArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let elf = Elf::read(&mut File::open(&args.file)?, common.page_size)?;
     let mut changed = false;
     let file_name = args.file.file_name().expect("File name exists");
     let new_file_name = {
@@ -303,20 +314,21 @@ fn patch(args: PatchArgs) -> Result<(), Box<dyn std::error::Error>> {
     };
     let _ = std::fs::remove_file(&new_path);
     fs_err::copy(&args.file, &new_path)?;
-    let mut file = OpenOptions::new().read(true).write(true).open(&new_path)?;
+    let file = OpenOptions::new().read(true).write(true).open(&new_path)?;
+    let mut patcher = ElfPatcher::new(elf, file);
     if args.remove_interpreter {
-        elf.remove_interpreter(&mut file)?;
+        patcher.remove_interpreter()?;
         changed = true;
     } else if let Some(path) = args.set_interpreter {
         let os_string = path.into_os_string();
         let mut bytes = os_string.into_vec();
         bytes.push(0_u8);
         let c_str = CStr::from_bytes_with_nul(&bytes)?;
-        elf.set_interpreter(&mut file, c_str)?;
+        patcher.set_interpreter(c_str)?;
         changed = true;
     }
     for entry in args.remove_dynamic.into_iter() {
-        elf.remove_dynamic(&mut file, entry.into())?;
+        patcher.remove_dynamic(entry.into())?;
         changed = true;
     }
     for pair in args.set_dynamic.into_iter() {
@@ -325,13 +337,13 @@ fn patch(args: PatchArgs) -> Result<(), Box<dyn std::error::Error>> {
         let mut value = iter.next().ok_or("Value not found")?.as_bytes().to_vec();
         value.push(0_u8);
         let value = CString::from_vec_with_nul(value)?;
-        elf.set_dynamic_c_str(&mut file, tag.into(), &value)?;
+        patcher.set_dynamic_c_str(tag.into(), &value)?;
         changed = true;
     }
     if !changed {
         return Err("No changes".into());
     }
-    elf.write(&mut file)?;
+    patcher.finish()?;
     fs_err::rename(&new_path, &args.file)?;
     Ok(())
 }

@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use elfie::Class;
 use elfie::DynamicTag;
 use elfie::Elf;
+use elfie::ElfPatcher;
 use elfie::Machine;
 use fs_err::File;
 use glob::glob;
@@ -20,51 +21,40 @@ use log::trace;
 use log::warn;
 use log::Level::Trace;
 
-#[derive(thiserror::Error, Debug)]
-pub enum LoaderError {
-    #[error("ELF error: {0}")]
-    Elf(#[from] elfie::Error),
-    #[error("Failed to resolve dependency {0:?} of {1:?}")]
-    FailedToResolve(CString, PathBuf),
-    #[error("Input/output error: {0}")]
-    Io(#[from] std::io::Error),
-}
+use crate::Error;
 
 pub struct DynamicLoader {
-    // TODO set?
-    system_search_paths: Vec<PathBuf>,
+    pub system_search_paths: Vec<PathBuf>,
+    page_size: u64,
 }
 
 impl DynamicLoader {
-    pub fn from_rootfs_dir<P: AsRef<Path>>(rootfs_dir: P) -> Result<Self, LoaderError> {
-        let system_search_paths = get_library_search_paths(rootfs_dir)?;
-        Ok(Self::from_system_search_paths(system_search_paths))
+    pub fn from_rootfs_dir<P: AsRef<Path>>(rootfs_dir: P) -> Result<Self, Error> {
+        Ok(Self {
+            system_search_paths: get_search_dirs(rootfs_dir)?,
+            page_size: 4096,
+        })
     }
 
-    pub fn from_system_search_paths(system_search_paths: Vec<PathBuf>) -> Self {
-        Self {
-            system_search_paths,
-        }
-    }
-
-    #[allow(unused)]
-    pub fn add_system_search_path<P: Into<PathBuf>>(&mut self, path: P) {
-        self.system_search_paths.push(path.into());
+    pub fn set_page_size(&mut self, value: u64) {
+        assert!(value.is_power_of_two());
+        self.page_size = value;
     }
 
     pub fn resolve_dependencies<P: AsRef<Path>>(
         &self,
         file: P,
-    ) -> Result<(Elf, Vec<PathBuf>), LoaderError> {
+    ) -> Result<(Elf, Vec<PathBuf>), Error> {
         let mut file_names: Vec<CString> = Vec::new();
         let mut dependencies: Vec<PathBuf> = Vec::new();
         let dependent_file = file.as_ref();
         let mut file = File::open(dependent_file)?;
-        let elf = Elf::read(&mut file)?;
-        let dynstr_table = elf.read_dynamic_string_table(&mut file)?;
-        let dynamic_table = elf.read_dynamic_table(&mut file)?;
-        let interpreter = elf
-            .read_interpreter(&mut file)?
+        let elf = Elf::read(&mut file, self.page_size)?;
+        let mut patcher = ElfPatcher::new(elf, file);
+        let dynstr_table = patcher.read_dynamic_string_table()?;
+        let dynamic_table = patcher.read_dynamic_table()?;
+        let interpreter = patcher
+            .read_interpreter()?
             .map(|c_str| PathBuf::from(OsStr::from_bytes(c_str.to_bytes())));
         let mut search_paths = Vec::new();
         for key in [DynamicTag::RunPathOffset, DynamicTag::RpathOffset] {
@@ -79,7 +69,7 @@ impl DynamicLoader {
                 })
                 .flat_map(|rpath| std::env::split_paths(OsStr::from_bytes(rpath.to_bytes())))
             {
-                let dir = interpolate(&dir, dependent_file, &elf);
+                let dir = interpolate(&dir, dependent_file, patcher.elf());
                 if log_enabled!(Trace) {
                     let what = match key {
                         DynamicTag::RpathOffset => "rpath",
@@ -122,11 +112,12 @@ impl DynamicLoader {
                         continue;
                     }
                 };
-                let dep = match Elf::read_unchecked(&mut file) {
+                let dep = match Elf::read_unchecked(&mut file, self.page_size) {
                     Ok(dep) => dep,
                     Err(elfie::Error::NotElf) => continue,
                     Err(e) => return Err(e.into()),
                 };
+                let elf = patcher.elf();
                 if dep.header.byte_order == elf.header.byte_order
                     && dep.header.class == elf.header.class
                     && dep.header.machine == elf.header.machine
@@ -140,18 +131,17 @@ impl DynamicLoader {
             }
             trace!("Search paths {:#?}", search_paths);
             trace!("Resolved file names {:#?}", file_names);
-            return Err(LoaderError::FailedToResolve(
+            return Err(Error::FailedToResolve(
                 dep_name.into(),
                 dependent_file.to_path_buf(),
             ));
         }
+        let (elf, _file) = patcher.into_inner();
         Ok((elf, dependencies))
     }
 }
 
-pub fn get_library_search_paths<P: AsRef<Path>>(
-    rootfs_dir: P,
-) -> Result<Vec<PathBuf>, std::io::Error> {
+pub fn get_search_dirs<P: AsRef<Path>>(rootfs_dir: P) -> Result<Vec<PathBuf>, std::io::Error> {
     let rootfs_dir = rootfs_dir.as_ref();
     let mut paths = Vec::new();
     parse_ld_so_conf(rootfs_dir.join("etc/ld.so.conf"), rootfs_dir, &mut paths)?;
@@ -281,8 +271,6 @@ mod tests {
     use std::ffi::CStr;
     use std::ffi::OsString;
     use std::fs::Permissions;
-    use std::io::Seek;
-    use std::io::SeekFrom;
     use std::os::unix::ffi::OsStringExt;
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::fs::PermissionsExt;
@@ -304,7 +292,9 @@ mod tests {
         paths.dedup();
         let mut loader = DynamicLoader::from_rootfs_dir("/").unwrap();
         // TODO
-        loader.add_system_search_path("/gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib");
+        loader
+            .system_search_paths
+            .push("/gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib".into());
         let mut visited = HashSet::new();
         for dir in paths.iter() {
             if !dir.exists() || !dir.is_dir() {
@@ -354,11 +344,12 @@ mod tests {
                 //eprintln!("Reading {:?}", path);
                 match loader.resolve_dependencies(&path) {
                     Ok((elf, dependencies)) => {
-                        let mut file = File::open(&path).unwrap();
-                        let Ok(Some(_)) = elf.read_interpreter(&mut file) else {
+                        let file = File::open(&path).unwrap();
+                        let mut patcher = ElfPatcher::new(elf, file);
+                        let Ok(Some(_)) = patcher.read_interpreter() else {
                             continue;
                         };
-                        let Ok(Some(data)) = elf.read_section(c".rodata", &mut file) else {
+                        let Ok(Some(data)) = patcher.read_section(c".rodata") else {
                             continue;
                         };
                         let mut working_arg = None;
@@ -402,14 +393,14 @@ mod tests {
                                 fs_err::copy(&dep_file, &new_file).unwrap();
                                 fs_err::set_permissions(&new_file, Permissions::from_mode(0o755))
                                     .unwrap();
-                                let (mut elf, _deps) =
-                                    loader.resolve_dependencies(&dep_file).unwrap();
-                                let mut file = OpenOptions::new()
+                                let (elf, _deps) = loader.resolve_dependencies(&dep_file).unwrap();
+                                let file = OpenOptions::new()
                                     .read(true)
                                     .write(true)
                                     .open(&new_file)
                                     .unwrap();
-                                let dynamic_table = elf.read_dynamic_table(&mut file).unwrap();
+                                let mut patcher = ElfPatcher::new(elf, file);
+                                let dynamic_table = patcher.read_dynamic_table().unwrap();
                                 if !dynamic_table
                                     .iter()
                                     .any(|(tag, _)| *tag == DynamicTag::Needed)
@@ -417,7 +408,7 @@ mod tests {
                                     // Statically linked.
                                     continue;
                                 }
-                                elf.remove_interpreter(&mut file).unwrap();
+                                patcher.remove_interpreter().unwrap();
                                 /*
                                 let run_path = {
                                     let mut bytes = Vec::new();
@@ -441,7 +432,7 @@ mod tests {
                                 )
                                 .unwrap();
                                 */
-                                elf.write(&mut file).unwrap();
+                                patcher.finish().unwrap();
                             }
                             let new_path = workdir.join(path.file_name().unwrap());
                             fs_err::copy(&path, &new_path).unwrap();
@@ -452,8 +443,10 @@ mod tests {
                                 .write(true)
                                 .open(&new_path)
                                 .unwrap();
-                            let mut elf = Elf::read(&mut file).unwrap();
-                            let interpreter = elf.read_interpreter(&mut file).unwrap().unwrap();
+                            // TODO
+                            let elf = Elf::read(&mut file, 4096).unwrap();
+                            let mut patcher = ElfPatcher::new(elf, file);
+                            let interpreter = patcher.read_interpreter().unwrap().unwrap();
                             let interpreter: PathBuf =
                                 OsString::from_vec(interpreter.into_bytes()).into();
                             let interpreter_hash = hash_file(&interpreter);
@@ -463,14 +456,16 @@ mod tests {
                             eprintln!("New interpreter {:?}", new_interpreter);
                             let mut new_interpreter = new_interpreter.into_os_string();
                             new_interpreter.push("\0");
-                            elf.set_interpreter(
-                                &mut file,
-                                CStr::from_bytes_with_nul(new_interpreter.as_bytes()).unwrap(),
-                            )
-                            .unwrap();
-                            elf.write(&mut file).unwrap();
-                            file.seek(SeekFrom::Start(0)).unwrap();
-                            let mut elf = Elf::read(&mut file).unwrap();
+                            patcher
+                                .set_interpreter(
+                                    CStr::from_bytes_with_nul(new_interpreter.as_bytes()).unwrap(),
+                                )
+                                .unwrap();
+                            //let mut file = patcher.finish().unwrap();
+                            //file.seek(SeekFrom::Start(0)).unwrap();
+                            //// TODO
+                            //let elf = Elf::read(&mut file, 4096).unwrap();
+                            //let mut patcher = ElfPatcher::new(elf, file);
                             let run_path = {
                                 let mut bytes = Vec::new();
                                 for dep in dependencies.into_iter() {
@@ -485,12 +480,11 @@ mod tests {
                                 bytes.push(0_u8);
                                 CString::from_vec_with_nul(bytes).unwrap()
                             };
-                            elf.remove_dynamic(&mut file, DynamicTag::RunPathOffset)
+                            patcher.remove_dynamic(DynamicTag::RunPathOffset).unwrap();
+                            patcher
+                                .set_dynamic_c_str(DynamicTag::RpathOffset, &run_path)
                                 .unwrap();
-                            elf.set_dynamic_c_str(&mut file, DynamicTag::RpathOffset, &run_path)
-                                .unwrap();
-                            elf.write(&mut file).unwrap();
-                            drop(file);
+                            patcher.finish().unwrap();
                             let actual_result = Command::new(&new_path)
                                 .arg(arg)
                                 .stdin(Stdio::null())
@@ -511,7 +505,7 @@ mod tests {
                             eprintln!("SUCCESS {:?}", path);
                         }
                     }
-                    Err(LoaderError::Elf(elfie::Error::NotElf)) => continue,
+                    Err(Error::Elf(elfie::Error::NotElf)) => continue,
                     Err(e) => {
                         panic!("Failed to process {:?}: {e}", path);
                     }
@@ -561,6 +555,8 @@ mod tests {
     const NOT_WORKING: &[&str] = &[
         // qt/plugins needs to be copied to RUNPATH
         "scribus",
+        // connect fails after a few retries
+        "jack_transport",
         // SIGSEGV, garbled `ldd` output
         //"convco",           // working
         //"cargo-sqlx",       // working
