@@ -250,7 +250,7 @@ fn interpolate(dir: &Path, file: &Path, elf: &Elf) -> PathBuf {
                 interpolated.push(lib);
             }
             // TODO more platforms
-            Normal(comp) if comp == "$PLATFORM" || comp == "${PLATFOMR}" => {
+            Normal(comp) if comp == "$PLATFORM" || comp == "${PLATFORM}" => {
                 let platform = match elf.header.machine {
                     Machine::X86_64 => "x86_64",
                     _ => {
@@ -274,7 +274,6 @@ fn interpolate(dir: &Path, file: &Path, elf: &Elf) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Logger;
     use fs_err::OpenOptions;
     use std::collections::HashSet;
     use std::env::split_paths;
@@ -294,7 +293,7 @@ mod tests {
 
     #[test]
     fn loader_resolves_system_files() {
-        Logger::init(true).unwrap();
+        let _ = env_logger::try_init();
         let mut paths: Vec<PathBuf> = Vec::new();
         paths.extend(DEFAULT_PATH.iter().map(Into::into));
         paths.extend(DEFAULT_LD_LIBRARY_PATH.iter().map(Into::into));

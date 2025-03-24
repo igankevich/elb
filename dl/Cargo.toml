@@ -1,19 +1,19 @@
 [package]
-name = "elfie-cli"
+name = "elfie-dl"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[[bin]]
-name = "elfie"
-path = "src/main.rs"
-
 [dependencies]
-clap = { version = "4.5.31", features = ["derive"] }
-colored = "3.0.0"
 elfie = { path = "..", version = "0.1.0" }
-elfie-dl = { path = "../dl", version = "0.1.0" }
-env_logger = "0.11.6"
 fs-err = "3.1.0"
+glob = "0.3.2"
 log.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+base32 = "0.5.1"
+sha2 = "0.10.8"
+tempfile = "3.18.0"
+walkdir = "2.5.0"
+env_logger = "0.11.6"

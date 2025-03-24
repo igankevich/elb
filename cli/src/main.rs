@@ -12,15 +12,14 @@ use elfie::ArmFlags;
 use elfie::Elf;
 use elfie::Machine;
 use elfie::StringTable;
+use elfie_dl::DynamicLoader;
 use fs_err::File;
 use fs_err::OpenOptions;
 
 mod formatting;
-mod loader;
 mod logger;
 
 use self::formatting::*;
-use self::loader::*;
 use self::logger::*;
 
 #[derive(clap::Parser)]

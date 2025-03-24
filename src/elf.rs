@@ -459,6 +459,7 @@ impl Elf {
                 Some(i) => {
                     let section = &self.sections[i];
                     let virtual_address = section.virtual_address;
+                    file.seek(SeekFrom::Start(section.offset))?;
                     let dynamic_table = DynamicTable::read(
                         &mut file,
                         self.header.class,
@@ -478,6 +479,7 @@ impl Elf {
                         Some(i) => {
                             let segment = &self.segments[i];
                             let virtual_address = segment.virtual_address;
+                            file.seek(SeekFrom::Start(segment.offset))?;
                             let dynamic_table = DynamicTable::read(
                                 &mut file,
                                 self.header.class,
