@@ -66,6 +66,7 @@ pub enum Error {
     #[error("Failed to allocate memory block")]
     MemoryBlockAlloc,
     #[error("Input/output error: {0}")]
+    #[cfg(feature = "std")]
     Io(std::io::Error),
     #[error("Unexpected EOF")]
     UnexpectedEof,

@@ -2,9 +2,14 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
+use crate::ElfRead;
+use crate::ElfWrite;
+use crate::Error;
+
 /// A table that stores NUL-terminated strings.
 ///
 /// Always starts and ends with a NUL byte.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StringTable(Vec<u8>);
 
 impl StringTable {
@@ -74,6 +79,18 @@ impl StringTable {
     pub fn into_inner(self) -> Vec<u8> {
         self.0
     }
+
+    /// Read the table from the `reader`.
+    pub fn read<R: ElfRead>(reader: &mut R, len: u64) -> Result<Self, Error> {
+        let mut strings = vec![0_u8; len as usize];
+        reader.read_bytes(&mut strings[..])?;
+        Ok(Self(strings))
+    }
+
+    /// Write the table to the `writer`.
+    pub fn write<W: ElfWrite>(&self, writer: &mut W) -> Result<(), Error> {
+        writer.write_bytes(self.as_bytes())
+    }
 }
 
 impl From<Vec<u8>> for StringTable {
@@ -103,11 +120,32 @@ impl Default for StringTable {
     }
 }
 
+impl<T: AsRef<CStr>> FromIterator<T> for StringTable {
+    fn from_iter<I>(items: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let mut strings: Vec<u8> = Vec::new();
+        strings.push(0_u8);
+        for item in items.into_iter() {
+            strings.extend_from_slice(item.as_ref().to_bytes_with_nul());
+        }
+        Self(strings)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloc::ffi::CString;
+    use arbitrary::Arbitrary;
+    use arbitrary::Unstructured;
     use arbtest::arbtest;
+
+    use crate::test::test_block_io;
+    use crate::ByteOrder;
+    use crate::Class;
+    use crate::BlockIo;
 
     #[test]
     fn test_get_offset() {
@@ -162,5 +200,37 @@ mod tests {
             }
             Ok(())
         });
+    }
+
+    #[test]
+    fn string_table_io() {
+        test_block_io::<StringTable>();
+    }
+
+    impl BlockIo for StringTable {
+        fn read<R: ElfRead>(
+            reader: &mut R,
+            _class: Class,
+            _byte_order: ByteOrder,
+            len: u64,
+        ) -> Result<Self, Error> {
+            StringTable::read(reader, len)
+        }
+
+        fn write<W: ElfWrite>(
+            &self,
+            writer: &mut W,
+            _class: Class,
+            _byte_order: ByteOrder,
+        ) -> Result<(), Error> {
+            self.write(writer)
+        }
+    }
+
+    impl<'a> Arbitrary<'a> for StringTable {
+        fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+            let strings: Vec<CString> = u.arbitrary()?;
+            Ok(strings.into_iter().collect())
+        }
     }
 }

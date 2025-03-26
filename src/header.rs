@@ -218,8 +218,8 @@ const fn blocks_overlap(a: &Range<u64>, b: &Range<u64>) -> bool {
 mod tests {
     use super::*;
 
-    use std::io::Cursor;
     use alloc::vec::Vec;
+    use std::io::Cursor;
 
     use arbitrary::Arbitrary;
     use arbitrary::Unstructured;

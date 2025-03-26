@@ -5,13 +5,14 @@ use core::ops::DerefMut;
 use core::ops::Range;
 
 use crate::constants::*;
-use crate::other::*;
 use crate::validation::*;
+use crate::zero;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
 use crate::ElfSeek;
 use crate::ElfWrite;
+use crate::EntityIo;
 use crate::Error;
 use crate::FileKind;
 use crate::Header;
@@ -47,6 +48,7 @@ impl SectionHeader {
         }
         Ok(())
     }
+    // TODO implement BlockIo
 
     /// Check sections.
     pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
@@ -195,9 +197,10 @@ impl Section {
             entry_len: 0,
         }
     }
+}
 
-    /// Read section from `reader.
-    pub fn read<R: ElfRead>(
+impl EntityIo for Section {
+    fn read<R: ElfRead>(
         reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
@@ -226,8 +229,7 @@ impl Section {
         })
     }
 
-    /// Write section to `writer.`
-    pub fn write<W: ElfWrite>(
+    fn write<W: ElfWrite>(
         &self,
         writer: &mut W,
         class: Class,
@@ -245,7 +247,9 @@ impl Section {
         writer.write_word(class, byte_order, self.entry_len)?;
         Ok(())
     }
+}
 
+impl Section {
     pub fn read_content<R: ElfRead + ElfSeek>(&self, reader: &mut R) -> Result<Vec<u8>, Error> {
         reader.seek(self.offset)?;
         let n: usize = self
@@ -379,20 +383,13 @@ mod tests {
     use arbitrary::Unstructured;
     use arbtest::arbtest;
 
+    use crate::test::test_entity_io;
+    use crate::test::ArbitraryWithClass;
     use crate::FileKind;
 
     #[test]
     fn section_io() {
-        arbtest(|u| {
-            let class: Class = u.arbitrary()?;
-            let byte_order: ByteOrder = u.arbitrary()?;
-            let expected = Section::arbitrary(u, class)?;
-            let mut buf = Vec::new();
-            expected.write(&mut buf, class, byte_order).unwrap();
-            let actual = Section::read(&mut &buf[..], class, byte_order).unwrap();
-            assert_eq!(expected, actual);
-            Ok(())
-        });
+        test_entity_io::<Section>();
     }
 
     #[test]
@@ -429,7 +426,7 @@ mod tests {
         });
     }
 
-    impl SectionHeader {
+    impl ArbitraryWithClass<'_> for SectionHeader {
         pub fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
             let num_entries = u.arbitrary_len::<[u8; SECTION_LEN_64]>()?;
             let mut entries = Vec::with_capacity(num_entries);
@@ -440,8 +437,8 @@ mod tests {
         }
     }
 
-    impl Section {
-        pub fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
+    impl ArbitraryWithClass<'_> for Section {
+        fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
             Ok(Self {
                 name_offset: u.arbitrary()?,
                 kind: u.arbitrary()?,

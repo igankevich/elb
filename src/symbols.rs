@@ -6,7 +6,9 @@ use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
 use crate::ElfWrite;
+use crate::EntityIo;
 use crate::Error;
+use crate::BlockIo;
 
 /// A symbol.
 #[derive(Debug)]
@@ -20,9 +22,8 @@ pub struct Symbol {
     pub other: u8,
 }
 
-impl Symbol {
-    /// Read from `reader`.
-    pub fn read<R: ElfRead>(
+impl EntityIo for Symbol {
+    fn read<R: ElfRead>(
         reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
@@ -62,8 +63,7 @@ impl Symbol {
         }
     }
 
-    /// Write to `writer`.
-    pub fn write<W: ElfWrite>(
+    fn write<W: ElfWrite>(
         &self,
         writer: &mut W,
         class: Class,
@@ -102,9 +102,10 @@ impl SymbolTable {
     pub fn new() -> Self {
         Self::default()
     }
+}
 
-    /// Read table from `reader`.
-    pub fn read<R: ElfRead>(
+impl BlockIo for SymbolTable {
+    fn read<R: ElfRead>(
         reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
@@ -119,8 +120,7 @@ impl SymbolTable {
         Ok(Self { entries })
     }
 
-    /// Write table to `writer`.
-    pub fn write<W: ElfWrite>(
+    fn write<W: ElfWrite>(
         &self,
         writer: &mut W,
         class: Class,
@@ -150,53 +150,24 @@ impl DerefMut for SymbolTable {
 mod tests {
     use super::*;
 
-    use std::io::Cursor;
-
     use arbitrary::Unstructured;
-    use arbtest::arbtest;
 
     use crate::constants::*;
+    use crate::test::test_entity_io;
+    use crate::test::test_block_io;
+    use crate::test::ArbitraryWithClass;
 
     #[test]
     fn symbol_io() {
-        arbtest(|u| {
-            let class: Class = u.arbitrary()?;
-            let byte_order: ByteOrder = u.arbitrary()?;
-            let expected = Symbol::arbitrary(u, class)?;
-            let mut cursor = Cursor::new(Vec::new());
-            expected
-                .write(&mut cursor, class, byte_order)
-                .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
-                .unwrap();
-            let bytes = cursor.into_inner();
-            let actual = Symbol::read(&mut &bytes[..], class, byte_order).unwrap();
-            assert_eq!(expected, actual);
-            Ok(())
-        });
+        test_entity_io::<Symbol>();
     }
 
     #[test]
     fn symbol_table_io() {
-        arbtest(|u| {
-            let class: Class = u.arbitrary()?;
-            let byte_order: ByteOrder = u.arbitrary()?;
-            let expected = SymbolTable::arbitrary(u, class)?;
-            let mut cursor = Cursor::new(Vec::new());
-            expected
-                .write(&mut cursor, class, byte_order)
-                .inspect_err(|e| panic!("Failed to write {:#?}: {e}", expected))
-                .unwrap();
-            let len = cursor.get_ref().len();
-            cursor.set_position(0);
-            let actual = SymbolTable::read(&mut cursor, class, byte_order, len as u64)
-                .inspect_err(|e| panic!("Failed to read {:#?}: {e}", expected))
-                .unwrap();
-            assert_eq!(expected, actual);
-            Ok(())
-        });
+        test_block_io::<SymbolTable>();
     }
 
-    impl Symbol {
+    impl ArbitraryWithClass<'_> for Symbol {
         fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
             Ok(match class {
                 Class::Elf32 => Self {
@@ -219,7 +190,7 @@ mod tests {
         }
     }
 
-    impl SymbolTable {
+    impl ArbitraryWithClass<'_> for SymbolTable {
         fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
             let num_entries = u.arbitrary_len::<[u8; SYMBOL_LEN_64]>()?;
             let mut entries = Vec::with_capacity(num_entries);

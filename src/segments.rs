@@ -7,13 +7,14 @@ use core::ops::Range;
 
 use crate::align_down;
 use crate::align_up;
-use crate::other::*;
 use crate::validation::*;
+use crate::zero;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
 use crate::ElfSeek;
 use crate::ElfWrite;
+use crate::EntityIo;
 use crate::Error;
 use crate::Header;
 use crate::SegmentFlags;
@@ -296,8 +297,8 @@ pub struct Segment {
     pub align: u64,
 }
 
-impl Segment {
-    pub fn read<R: ElfRead>(
+impl EntityIo for Segment {
+    fn read<R: ElfRead>(
         reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
@@ -328,7 +329,7 @@ impl Segment {
         })
     }
 
-    pub fn write<W: ElfWrite>(
+    fn write<W: ElfWrite>(
         &self,
         writer: &mut W,
         class: Class,
@@ -349,7 +350,9 @@ impl Segment {
         writer.write_word(class, byte_order, self.align)?;
         Ok(())
     }
+}
 
+impl Segment {
     pub fn read_content<R: ElfRead + ElfSeek>(&self, reader: &mut R) -> Result<Vec<u8>, Error> {
         reader.seek(self.offset)?;
         let n: usize = self
@@ -480,20 +483,13 @@ mod tests {
     use arbtest::arbtest;
 
     use crate::constants::*;
+    use crate::test::test_entity_io;
+    use crate::test::ArbitraryWithClass;
     use crate::FileKind;
 
     #[test]
-    fn section_io() {
-        arbtest(|u| {
-            let class: Class = u.arbitrary()?;
-            let byte_order: ByteOrder = u.arbitrary()?;
-            let expected = Segment::arbitrary(u, class)?;
-            let mut buf = Vec::new();
-            expected.write(&mut buf, class, byte_order).unwrap();
-            let actual = Segment::read(&mut &buf[..], class, byte_order).unwrap();
-            assert_eq!(expected, actual);
-            Ok(())
-        });
+    fn segment_io() {
+        test_entity_io::<Segment>();
     }
 
     #[test]
@@ -535,8 +531,8 @@ mod tests {
         });
     }
 
-    impl ProgramHeader {
-        pub fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
+    impl ArbitraryWithClass<'_> for ProgramHeader {
+        fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
             let num_entries = u.arbitrary_len::<[u8; SEGMENT_LEN_64]>()?;
             let mut entries: Vec<Segment> = Vec::with_capacity(num_entries);
             for _ in 0..num_entries {
@@ -546,8 +542,8 @@ mod tests {
         }
     }
 
-    impl Segment {
-        pub fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
+    impl ArbitraryWithClass<'_> for Segment {
+        fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
             Ok(Self {
                 kind: u.arbitrary()?,
                 flags: SegmentFlags::from_bits_retain(u.arbitrary()?),

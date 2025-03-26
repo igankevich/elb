@@ -7,6 +7,7 @@ use crate::ByteOrder;
 use crate::Class;
 use crate::DynamicTag;
 use crate::Error;
+use crate::BlockIo;
 
 /// Dynamic linking information.
 #[derive(Default, Debug)]
@@ -15,10 +16,12 @@ pub struct DynamicTable {
 }
 
 impl DynamicTable {
+    /// Create empty table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// The on-disk size of the table in bytes.
     pub fn in_file_len(&self, class: Class) -> usize {
         let x = if self.entries.last() == Some(&(DynamicTag::Null, 0)) {
             0
@@ -27,8 +30,10 @@ impl DynamicTable {
         };
         (self.entries.len() + x) * class.dynamic_len()
     }
+}
 
-    pub fn read<R: ElfRead>(
+impl BlockIo for DynamicTable {
+    fn read<R: ElfRead>(
         reader: &mut R,
         class: Class,
         byte_order: ByteOrder,
@@ -48,7 +53,7 @@ impl DynamicTable {
         Ok(Self { entries })
     }
 
-    pub fn write<W: ElfWrite>(
+    fn write<W: ElfWrite>(
         &self,
         writer: &mut W,
         class: Class,
@@ -65,13 +70,21 @@ impl DynamicTable {
         }
         Ok(())
     }
+}
 
+impl DynamicTable {
+    /// Set table entry under key `tag` to value `value`.
+    ///
+    /// If the key matches multiple entries, only the first matched entry is updated, and all the subsequent
+    /// entries are removed from the table.
+    ///
+    /// Panics if the `tag` is [`NULL`](crate::DynamicTag::Null).
     pub fn set(&mut self, tag: DynamicTag, value: u64) {
         assert_ne!(DynamicTag::Null, tag);
         match self.entries.iter().position(|(t, _)| *t == tag) {
             Some(i) => {
                 log::trace!("Replacing dynamic table entry {tag:?} at index {i} with {value}");
-                // Set to NULL temporarily
+                // Set to NULL temporarily.
                 self.entries[i].0 = DynamicTag::Null;
                 self.entries[i].1 = value;
                 // Remove other values if any.

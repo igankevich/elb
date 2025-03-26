@@ -52,7 +52,7 @@ pub trait ElfRead {
 }
 
 #[cfg(feature = "std")]
-impl<R: std::io::Read> ElfRead for R {
+impl<R: std::io::Read + ?Sized> ElfRead for R {
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), crate::Error> {
         Ok(self.read_exact(buf)?)
     }
@@ -139,7 +139,7 @@ pub trait ElfWrite {
 }
 
 #[cfg(feature = "std")]
-impl<W: std::io::Write> ElfWrite for W {
+impl<W: std::io::Write + ?Sized> ElfWrite for W {
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
         Ok(self.write_all(bytes)?)
     }
@@ -151,9 +151,70 @@ pub trait ElfSeek {
 }
 
 #[cfg(feature = "std")]
-impl<S: std::io::Seek> ElfSeek for S {
+impl<S: std::io::Seek + ?Sized> ElfSeek for S {
     fn seek(&mut self, offset: u64) -> Result<(), Error> {
         self.seek(std::io::SeekFrom::Start(offset))?;
         Ok(())
     }
+}
+
+/// Read an entity from a file or write an entity to a file.
+///
+/// Usually an entity doesn't occupy the whole section or segment.
+pub trait EntityIo {
+    /// Read the entity from the `reader`.
+    fn read<R: ElfRead>(reader: &mut R, class: Class, byte_order: ByteOrder) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// Write the entity to the `writer`.
+    fn write<W: ElfWrite>(
+        &self,
+        writer: &mut W,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<(), Error>;
+}
+
+/// Read a table from a file or write a table to a file.
+///
+/// Usually a table occupies the whole section or segment.
+pub trait BlockIo {
+    /// Read the table from the `reader`.
+    fn read<R: ElfRead>(
+        reader: &mut R,
+        class: Class,
+        byte_order: ByteOrder,
+        len: u64,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// Write the table to the `writer`.
+    fn write<W: ElfWrite>(
+        &self,
+        writer: &mut W,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<(), Error>;
+}
+
+pub(crate) fn zero<W: ElfWrite + ElfSeek>(
+    writer: &mut W,
+    offset: u64,
+    size: u64,
+) -> Result<(), Error> {
+    writer.seek(offset)?;
+    write_zeroes(writer, size)?;
+    Ok(())
+}
+
+pub(crate) fn write_zeroes<W: ElfWrite + ElfSeek>(writer: &mut W, size: u64) -> Result<(), Error> {
+    const BUF_LEN: usize = 4096;
+    let buf = [0_u8; BUF_LEN];
+    for offset in (0..size).step_by(BUF_LEN) {
+        let n = (offset + BUF_LEN as u64).min(size) - offset;
+        writer.write_bytes(&buf[..n as usize])?;
+    }
+    Ok(())
 }

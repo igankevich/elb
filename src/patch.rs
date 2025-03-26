@@ -23,6 +23,7 @@ use crate::SegmentFlags;
 use crate::SegmentKind;
 use crate::StringTable;
 use crate::SymbolTable;
+use crate::BlockIo;
 
 pub struct ElfPatcher<F> {
     elf: Elf,

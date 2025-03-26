@@ -17,13 +17,14 @@ mod flags;
 mod header;
 mod io;
 mod macros;
-pub(crate) mod other;
 mod patch;
 mod relocations;
 mod sections;
 mod segments;
 mod strings;
 mod symbols;
+#[cfg(test)]
+pub(crate) mod test;
 pub(crate) mod validation;
 
 pub use self::allocations::*;
