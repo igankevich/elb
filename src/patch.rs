@@ -6,6 +6,7 @@ use core::ops::Range;
 
 use crate::constants::*;
 use crate::Allocations;
+use crate::BlockIo;
 use crate::DynamicTable;
 use crate::DynamicTag;
 use crate::Elf;
@@ -23,7 +24,6 @@ use crate::SegmentFlags;
 use crate::SegmentKind;
 use crate::StringTable;
 use crate::SymbolTable;
-use crate::BlockIo;
 
 pub struct ElfPatcher<F> {
     elf: Elf,

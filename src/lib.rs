@@ -25,7 +25,6 @@ mod strings;
 mod symbols;
 #[cfg(test)]
 pub(crate) mod test;
-pub(crate) mod validation;
 
 pub use self::allocations::*;
 pub use self::byte_order::*;

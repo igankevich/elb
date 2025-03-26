@@ -1,7 +1,7 @@
 use core::ops::Range;
 
 use crate::constants::*;
-use crate::validation::*;
+use crate::validate_u32;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
@@ -200,6 +200,14 @@ impl Header {
             ));
         }
         Ok(())
+    }
+
+    pub const fn program_header_len(&self) -> u64 {
+        self.segment_len as u64 * self.num_segments as u64
+    }
+
+    pub const fn section_header_len(&self) -> u64 {
+        self.section_len as u64 * self.num_sections as u64
     }
 }
 

@@ -7,8 +7,9 @@ use core::ops::Range;
 
 use crate::align_down;
 use crate::align_up;
-use crate::validation::*;
+use crate::validate_u32;
 use crate::zero;
+use crate::BlockIo;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
@@ -27,28 +28,38 @@ pub struct ProgramHeader {
     entries: Vec<Segment>,
 }
 
-impl ProgramHeader {
-    /// Read segments from `reader`.
-    pub fn read<R: ElfRead>(reader: &mut R, header: &Header) -> Result<Self, Error> {
+impl BlockIo for ProgramHeader {
+    fn read<R: ElfRead>(
+        reader: &mut R,
+        class: Class,
+        byte_order: ByteOrder,
+        len: u64,
+    ) -> Result<Self, Error> {
         // TODO We support only u16::MAX entries. There can be more entries.
-        let mut entries = Vec::with_capacity(header.num_segments as usize);
-        for _ in 0..header.num_segments {
-            let entry = Segment::read(reader, header.class, header.byte_order)?;
+        let num_segments = len / class.segment_len() as u64;
+        let mut entries = Vec::with_capacity(num_segments as usize);
+        for _ in 0..num_segments {
+            let entry = Segment::read(reader, class, byte_order)?;
             entries.push(entry);
         }
         let ret = Self { entries };
         Ok(ret)
     }
 
-    /// Write segments to `writer`.
-    pub fn write<W: ElfWrite>(&self, writer: &mut W, header: &Header) -> Result<(), Error> {
-        assert_eq!(self.entries.len(), header.num_segments as usize);
+    fn write<W: ElfWrite>(
+        &self,
+        writer: &mut W,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<(), Error> {
         for entry in self.entries.iter() {
-            entry.write(writer, header.class, header.byte_order)?;
+            entry.write(writer, class, byte_order)?;
         }
         Ok(())
     }
+}
 
+impl ProgramHeader {
     /// Check segments.
     pub fn validate(&self, header: &Header, page_size: u64) -> Result<(), Error> {
         for segment in self.entries.iter() {
@@ -473,19 +484,20 @@ impl Segment {
     }
 }
 
+const fn align_is_valid(align: u64) -> bool {
+    align == 0 || align.is_power_of_two()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use std::io::Cursor;
-
     use arbitrary::Unstructured;
-    use arbtest::arbtest;
 
     use crate::constants::*;
+    use crate::test::test_block_io;
     use crate::test::test_entity_io;
     use crate::test::ArbitraryWithClass;
-    use crate::FileKind;
 
     #[test]
     fn segment_io() {
@@ -494,41 +506,7 @@ mod tests {
 
     #[test]
     fn program_header_io() {
-        arbtest(|u| {
-            let class: Class = u.arbitrary()?;
-            let byte_order: ByteOrder = u.arbitrary()?;
-            let entry_len = class.segment_len();
-            let expected = ProgramHeader::arbitrary(u, class)?;
-            let mut cursor = Cursor::new(Vec::new());
-            let header = Header {
-                num_segments: expected.len().try_into().unwrap(),
-                segment_len: entry_len,
-                program_header_offset: 0,
-                class,
-                byte_order,
-                os_abi: 0.into(),
-                abi_version: 0,
-                kind: FileKind::Executable,
-                machine: 0.into(),
-                flags: 0,
-                entry_point: 0,
-                section_header_offset: class.arbitrary_word(u)?,
-                section_len: 0,
-                num_sections: 0,
-                section_names_index: 0,
-                len: class.header_len(),
-            };
-            expected
-                .write(&mut cursor, &header)
-                .inspect_err(|e| panic!("Failed to write {:#?} {:#?}: {e}", header, expected))
-                .unwrap();
-            cursor.set_position(0);
-            let actual = ProgramHeader::read(&mut cursor, &header)
-                .inspect_err(|e| panic!("Failed to read {:#?} {:#?}: {e}", header, expected))
-                .unwrap();
-            assert_eq!(expected, actual);
-            Ok(())
-        });
+        test_block_io::<ProgramHeader>();
     }
 
     impl ArbitraryWithClass<'_> for ProgramHeader {

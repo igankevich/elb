@@ -4,10 +4,10 @@ use arbitrary::Unstructured;
 use arbtest::arbtest;
 use core::fmt::Debug;
 
+use crate::BlockIo;
 use crate::ByteOrder;
 use crate::Class;
 use crate::EntityIo;
-use crate::BlockIo;
 
 pub fn test_entity_io<T>()
 where

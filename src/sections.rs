@@ -5,8 +5,9 @@ use core::ops::DerefMut;
 use core::ops::Range;
 
 use crate::constants::*;
-use crate::validation::*;
+use crate::validate_u32;
 use crate::zero;
+use crate::BlockIo;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
@@ -28,28 +29,37 @@ pub struct SectionHeader {
     entries: Vec<Section>,
 }
 
-impl SectionHeader {
-    /// Read sections from `reader`.
-    pub fn read<R: ElfRead>(reader: &mut R, header: &Header) -> Result<Self, Error> {
-        let mut entries = Vec::with_capacity(header.num_sections as usize);
-        for _ in 0..header.num_sections {
-            let entry = Section::read(reader, header.class, header.byte_order)?;
+impl BlockIo for SectionHeader {
+    fn read<R: ElfRead>(
+        reader: &mut R,
+        class: Class,
+        byte_order: ByteOrder,
+        len: u64,
+    ) -> Result<Self, Error> {
+        let num_sections = len / class.section_len() as u64;
+        let mut entries = Vec::with_capacity(num_sections as usize);
+        for _ in 0..num_sections {
+            let entry = Section::read(reader, class, byte_order)?;
             entries.push(entry);
         }
         let ret = Self { entries };
         Ok(ret)
     }
 
-    /// Write sections to `writer`.
-    pub fn write<W: ElfWrite>(&self, writer: &mut W, header: &Header) -> Result<(), Error> {
-        assert_eq!(self.entries.len(), header.num_sections as usize);
+    fn write<W: ElfWrite>(
+        &self,
+        writer: &mut W,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<(), Error> {
         for entry in self.entries.iter() {
-            entry.write(writer, header.class, header.byte_order)?;
+            entry.write(writer, class, byte_order)?;
         }
         Ok(())
     }
-    // TODO implement BlockIo
+}
 
+impl SectionHeader {
     /// Check sections.
     pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
         if let Some(section) = self.entries.first() {
@@ -378,14 +388,11 @@ impl Default for Section {
 mod tests {
     use super::*;
 
-    use std::io::Cursor;
-
     use arbitrary::Unstructured;
-    use arbtest::arbtest;
 
+    use crate::test::test_block_io;
     use crate::test::test_entity_io;
     use crate::test::ArbitraryWithClass;
-    use crate::FileKind;
 
     #[test]
     fn section_io() {
@@ -394,40 +401,11 @@ mod tests {
 
     #[test]
     fn section_header_io() {
-        arbtest(|u| {
-            let class: Class = u.arbitrary()?;
-            let byte_order: ByteOrder = u.arbitrary()?;
-            let entry_len = class.section_len();
-            let expected = SectionHeader::arbitrary(u, class)?;
-            let mut cursor = Cursor::new(Vec::new());
-            let header = Header {
-                num_sections: expected.entries.len().try_into().unwrap(),
-                section_len: entry_len,
-                section_header_offset: 0,
-                class,
-                byte_order,
-                os_abi: 0.into(),
-                abi_version: 0,
-                kind: FileKind::Executable,
-                machine: 0.into(),
-                flags: 0,
-                entry_point: class.arbitrary_word(u)?,
-                program_header_offset: class.arbitrary_word(u)?,
-                segment_len: 0,
-                num_segments: 0,
-                section_names_index: 0,
-                len: class.header_len(),
-            };
-            expected.write(&mut cursor, &header).unwrap();
-            cursor.set_position(0);
-            let actual = SectionHeader::read(&mut cursor, &header).unwrap();
-            assert_eq!(expected, actual);
-            Ok(())
-        });
+        test_block_io::<SectionHeader>();
     }
 
     impl ArbitraryWithClass<'_> for SectionHeader {
-        pub fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
+        fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
             let num_entries = u.arbitrary_len::<[u8; SECTION_LEN_64]>()?;
             let mut entries = Vec::with_capacity(num_entries);
             for _ in 0..num_entries {

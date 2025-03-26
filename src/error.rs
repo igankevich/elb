@@ -93,3 +93,10 @@ impl From<std::io::ErrorKind> for Error {
         }
     }
 }
+
+pub(crate) fn validate_u32(word: u64, name: &'static str) -> Result<(), Error> {
+    if word > u32::MAX as u64 {
+        return Err(Error::TooBig(name));
+    }
+    Ok(())
+}

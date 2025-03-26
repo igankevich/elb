@@ -2,13 +2,13 @@ use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ops::DerefMut;
 
+use crate::BlockIo;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
 use crate::ElfWrite;
 use crate::EntityIo;
 use crate::Error;
-use crate::BlockIo;
 
 /// Relocation without an addend.
 #[derive(Debug)]
@@ -186,8 +186,8 @@ mod tests {
     use arbitrary::Unstructured;
 
     use crate::constants::*;
-    use crate::test::test_entity_io;
     use crate::test::test_block_io;
+    use crate::test::test_entity_io;
     use crate::test::ArbitraryWithClass;
 
     #[test]

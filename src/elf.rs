@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
+use crate::BlockIo;
 use crate::ElfRead;
 use crate::ElfSeek;
 use crate::ElfWrite;
@@ -26,9 +27,19 @@ impl Elf {
         reader.seek(0)?;
         let header = Header::read(reader)?;
         reader.seek(header.program_header_offset)?;
-        let segments = ProgramHeader::read(reader, &header)?;
+        let segments = ProgramHeader::read(
+            reader,
+            header.class,
+            header.byte_order,
+            header.program_header_len(),
+        )?;
         reader.seek(header.section_header_offset)?;
-        let sections = SectionHeader::read(reader, &header)?;
+        let sections = SectionHeader::read(
+            reader,
+            header.class,
+            header.byte_order,
+            header.section_header_len(),
+        )?;
         Ok(Self {
             header,
             segments,
@@ -48,9 +59,11 @@ impl Elf {
         writer.seek(0)?;
         self.header.write(writer)?;
         writer.seek(self.header.program_header_offset)?;
-        self.segments.write(writer, &self.header)?;
+        self.segments
+            .write(writer, self.header.class, self.header.byte_order)?;
         writer.seek(self.header.section_header_offset)?;
-        self.sections.write(writer, &self.header)?;
+        self.sections
+            .write(writer, self.header.class, self.header.byte_order)?;
         Ok(())
     }
 
@@ -58,6 +71,8 @@ impl Elf {
         self.header.check()?;
         self.segments.validate(&self.header, self.page_size)?;
         self.sections.validate(&self.header, &self.segments)?;
+        assert_eq!(self.sections.len(), self.header.num_sections as usize);
+        assert_eq!(self.segments.len(), self.header.num_segments as usize);
         Ok(())
     }
 

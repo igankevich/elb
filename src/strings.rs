@@ -143,9 +143,9 @@ mod tests {
     use arbtest::arbtest;
 
     use crate::test::test_block_io;
+    use crate::BlockIo;
     use crate::ByteOrder;
     use crate::Class;
-    use crate::BlockIo;
 
     #[test]
     fn test_get_offset() {

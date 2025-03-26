@@ -3,11 +3,11 @@ use core::ops::Deref;
 use core::ops::DerefMut;
 
 use crate::io::*;
+use crate::BlockIo;
 use crate::ByteOrder;
 use crate::Class;
 use crate::DynamicTag;
 use crate::Error;
-use crate::BlockIo;
 
 /// Dynamic linking information.
 #[derive(Default, Debug)]
