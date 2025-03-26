@@ -4,11 +4,11 @@ bitflags! {
     /// Segment flags.
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
     pub struct SegmentFlags: u32 {
-        /// The corresponding memory page(s) are executable.
+        /// The corresponding memory pages are executable.
         const EXECUTABLE = 1 << 0;
-        /// The corresponding memory page(s) are writable.
+        /// The corresponding memory pages are writable.
         const WRITABLE = 1 << 1;
-        /// The corresponding memory page(s) are readable.
+        /// The corresponding memory pages are readable.
         const READABLE = 1 << 2;
     }
 }
@@ -38,22 +38,14 @@ bitflags! {
 }
 
 bitflags! {
-    /// ARM-specific flags.
+    /// ARM32-specific flags.
+    ///
+    /// https://github.com/ARM-software/abi-aa/blob/main/aaelf32/aaelf32.rst
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
     pub struct ArmFlags: u32 {
-        const RELEXEC        = 0x001;
-        const HASENTRY       = 0x002;
-        const INTERWORK      = 0x004;
-        const APCS_26        = 0x008;
-        const APCS_FLOAT     = 0x010;
-        const PIC            = 0x020;
-        const ALIGN8         = 0x040;
-        const NEW_ABI        = 0x080;
-        const OLD_ABI        = 0x100;
         /// Uses software-emulated floating point operations.
-        const SOFT_FLOAT     = 0x200;
+        const SOFT_FLOAT = 0x200;
         /// Uses hardware-accelerated floating point operations.
-        const VFP_FLOAT      = 0x400;
-        const MAVERICK_FLOAT = 0x800;
+        const HARD_FLOAT = 0x400;
     }
 }
