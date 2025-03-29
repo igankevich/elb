@@ -5,7 +5,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-mod allocations;
+mod allocator;
 mod byte_order;
 mod class;
 pub(crate) mod constants;
@@ -26,7 +26,7 @@ mod symbols;
 #[cfg(test)]
 pub(crate) mod test;
 
-pub use self::allocations::*;
+pub use self::allocator::*;
 pub use self::byte_order::*;
 pub use self::class::*;
 pub use self::dynamic_table::*;

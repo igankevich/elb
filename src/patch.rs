@@ -2,10 +2,8 @@ use alloc::ffi::CString;
 use alloc::vec::Vec;
 use core::ffi::CStr;
 use core::ops::Deref;
-use core::ops::Range;
 
 use crate::constants::*;
-use crate::Allocations;
 use crate::BlockIo;
 use crate::DynamicTable;
 use crate::DynamicTag;
@@ -22,31 +20,21 @@ use crate::SectionKind;
 use crate::Segment;
 use crate::SegmentFlags;
 use crate::SegmentKind;
+use crate::SpaceAllocator;
 use crate::StringTable;
 use crate::SymbolTable;
 
 pub struct ElfPatcher<F> {
     elf: Elf,
     file: F,
-    min_memory_offset: u64,
     page_size: u64,
 }
 
 impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
     pub fn new(elf: Elf, file: F) -> Self {
-        let min_memory_offset = elf
-            .segments
-            .iter()
-            .filter(|segment| segment.kind == SegmentKind::Loadable)
-            .map(|segment| segment.virtual_address)
-            .min()
-            .unwrap_or(0)
-            .max(elf.header.len as u64);
-        log::trace!("Min. memory offset = {:#x}", min_memory_offset);
         Self {
             elf,
             file,
-            min_memory_offset,
             page_size: DEFAULT_PAGE_SIZE,
         }
     }
@@ -95,21 +83,8 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
             offset: 0,
             file_size: program_header_len,
             memory_size: program_header_len,
-            align: self.elf.page_size(),
+            align: PHDR_ALIGN,
         })?;
-        let phdr = &self.elf.segments[phdr_segment_index];
-        // Allocate LOAD segment to cover PHDR.
-        let load = Segment {
-            kind: SegmentKind::Loadable,
-            flags: SegmentFlags::READABLE,
-            virtual_address: phdr.virtual_address,
-            physical_address: phdr.physical_address,
-            offset: phdr.offset,
-            file_size: phdr.file_size,
-            memory_size: phdr.memory_size,
-            align: phdr.align,
-        };
-        self.elf.segments.push(load);
         // Allocate new section header.
         self.elf.sections.finish();
         let section_header_len = (self.elf.sections.len() as u64)
@@ -200,8 +175,7 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
                 size: interpreter.len() as u64,
                 link: 0,
                 info: 0,
-                // TODO
-                align: self.page_size,
+                align: INTERP_ALIGN,
                 entry_len: 0,
             },
             &names,
@@ -218,16 +192,6 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
             memory_size: section.size,
             align: section.align,
         };
-        self.elf.segments.push(Segment {
-            kind: SegmentKind::Loadable,
-            flags: segment.flags,
-            virtual_address: segment.virtual_address,
-            physical_address: segment.physical_address,
-            offset: segment.offset,
-            file_size: segment.file_size,
-            memory_size: segment.memory_size,
-            align: self.page_size,
-        });
         self.elf.segments.push(segment);
         // We don't write segment here since the content and the location is the same as in the
         // `.interp`. section.
@@ -419,6 +383,7 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
                     (dynamic_table, virtual_address)
                 }
                 None => {
+                    // TODO
                     // `.dynamic` section doesn't exits. Try to find DYNAMIC segment.
                     match self
                         .elf
@@ -483,50 +448,52 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
         log::trace!("dynstr table index {}", dynstr_table_index);
         // Update dynamic table.
         let dynstr_table_section = &self.elf.sections[dynstr_table_index];
-        if !self
-            .elf
-            .segments
-            .is_loadable(dynstr_table_section.file_offset_range())
-        {
-            self.elf.segments.add(Segment {
-                kind: SegmentKind::Loadable,
-                flags: SegmentFlags::READABLE | SegmentFlags::WRITABLE,
-                offset: dynstr_table_section.offset,
-                virtual_address: dynstr_table_section.virtual_address,
-                physical_address: dynstr_table_section.virtual_address,
-                file_size: dynstr_table_section.size,
-                memory_size: dynstr_table_section.size,
-                // TODO
-                align: self.page_size,
-            });
-        }
         dynstr_table_section.write_out(&mut self.file, dynstr_table.as_ref())?;
         log::trace!("Updated `.dynstr` table");
         dynamic_table.set(StringTableAddress, dynstr_table_section.virtual_address);
         dynamic_table.set(StringTableSize, dynstr_table_section.size);
         dynamic_table.set(entry_kind, value_offset as u64);
         let dynamic_table_len = dynamic_table.in_file_len(self.elf.header.class) as u64;
-        let dynamic_segment_index = self.alloc_segment(Segment {
-            kind: SegmentKind::Dynamic,
-            flags: SegmentFlags::READABLE | SegmentFlags::WRITABLE,
-            virtual_address: 0,
-            physical_address: 0,
-            offset: 0,
-            file_size: dynamic_table_len,
-            memory_size: dynamic_table_len,
-            // TODO
-            align: self.page_size,
-        })?;
+        let name_offset = self.get_name_offset(DYNAMIC_SECTION, &mut names)?;
+        let dynamic_section_index = self.alloc_section(
+            Section {
+                name_offset: name_offset
+                    .try_into()
+                    .map_err(|_| Error::TooBig("Section name"))?,
+                kind: SectionKind::Dynamic,
+                flags: SectionFlags::ALLOC | SectionFlags::WRITE,
+                virtual_address: 0,
+                offset: 0,
+                size: dynamic_table_len,
+                link: dynstr_table_index
+                    .try_into()
+                    .map_err(|_| Error::TooBig("Section link"))?,
+                info: 0,
+                align: DYNAMIC_ALIGN,
+                entry_len: DYNAMIC_ENTRY_LEN,
+            },
+            &names,
+        )?;
         let new_dynamic_table_virtual_address =
-            self.elf.segments[dynamic_segment_index].virtual_address;
+            self.elf.sections[dynamic_section_index].virtual_address;
         {
-            let segment = &self.elf.segments[dynamic_segment_index];
-            self.file.seek(segment.offset)?;
+            let section = &self.elf.sections[dynamic_section_index];
+            self.file.seek(section.offset)?;
             dynamic_table.write(
                 &mut self.file,
                 self.elf.header.class,
                 self.elf.header.byte_order,
             )?;
+            self.elf.segments.push(Segment {
+                kind: SegmentKind::Dynamic,
+                flags: SegmentFlags::READABLE | SegmentFlags::WRITABLE,
+                offset: section.offset,
+                virtual_address: section.virtual_address,
+                physical_address: section.virtual_address,
+                file_size: section.size,
+                memory_size: section.size,
+                align: section.align,
+            });
         }
         if old_dynamic_table_virtual_address != new_dynamic_table_virtual_address {
             log::trace!(
@@ -561,36 +528,17 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
         }
         // We don't write section here since the content and the location is the same as in the
         // `.dynamic`. segment.
-        let name_offset = self.get_name_offset(DYNAMIC_SECTION, &mut names)?;
-        let segment = &self.elf.segments[dynamic_segment_index];
-        self.elf.sections.add(Section {
-            name_offset: name_offset
-                .try_into()
-                .map_err(|_| Error::TooBig("Section name"))?,
-            kind: SectionKind::Dynamic,
-            flags: SectionFlags::ALLOC | SectionFlags::WRITE,
-            virtual_address: segment.virtual_address,
-            offset: segment.offset,
-            size: dynamic_table_len,
-            link: dynstr_table_index
-                .try_into()
-                .map_err(|_| Error::TooBig("Section link"))?,
-            info: 0,
-            // TODO
-            align: self.page_size,
-            entry_len: DYNAMIC_ENTRY_LEN,
-        });
-        let load = Segment {
-            kind: SegmentKind::Loadable,
-            flags: segment.flags,
-            virtual_address: segment.virtual_address,
-            physical_address: segment.physical_address,
-            offset: segment.offset,
-            file_size: segment.file_size,
-            memory_size: segment.memory_size,
-            align: segment.align,
-        };
-        self.elf.segments.push(load);
+        //let load = Segment {
+        //    kind: SegmentKind::Loadable,
+        //    flags: segment.flags,
+        //    virtual_address: segment.virtual_address,
+        //    physical_address: segment.physical_address,
+        //    offset: segment.offset,
+        //    file_size: segment.file_size,
+        //    memory_size: segment.memory_size,
+        //    align: segment.align,
+        //};
+        //self.elf.segments.push(load);
         Ok(())
     }
 
@@ -632,7 +580,7 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
                         size: names.as_bytes().len() as u64,
                         link: 0,
                         info: 0,
-                        align: 1,
+                        align: STRING_TABLE_ALIGN,
                         entry_len: 0,
                     },
                     names,
@@ -689,8 +637,7 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
                         size: table.as_bytes().len() as u64,
                         link: 0,
                         info: 0,
-                        // TODO
-                        align: self.page_size,
+                        align: STRING_TABLE_ALIGN,
                         entry_len: 0,
                     },
                     names,
@@ -738,6 +685,14 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
     }
 
     fn alloc_segment(&mut self, mut segment: Segment) -> Result<usize, Error> {
+        let mut alloc = SpaceAllocator::new(
+            self.header.class,
+            self.page_size,
+            &self.elf.sections,
+            &mut self.elf.segments,
+        );
+        alloc.allocate_segment(&mut segment)?;
+        /*
         segment.virtual_address = self
             .alloc_memory_block(segment.memory_size, segment.align)
             .ok_or(Error::MemoryBlockAlloc)?;
@@ -745,6 +700,7 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
             .alloc_file_block(segment.file_size, segment.virtual_address)
             .ok_or(Error::FileBlockAlloc)?;
         segment.physical_address = segment.virtual_address;
+        */
         log::trace!(
             "Allocating segment {:?}, file offsets {:#x}..{:#x}, memory offsets {:#x}..{:#x}",
             segment.kind,
@@ -839,12 +795,21 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
     }
 
     fn alloc_section(&mut self, mut section: Section, names: &StringTable) -> Result<usize, Error> {
+        let mut alloc = SpaceAllocator::new(
+            self.header.class,
+            self.page_size,
+            &self.elf.sections,
+            &mut self.elf.segments,
+        );
+        alloc.allocate_section(&mut section)?;
+        /*
         section.virtual_address = self
             .alloc_memory_block(section.size, section.align)
             .ok_or(Error::MemoryBlockAlloc)?;
         section.offset = self
             .alloc_file_block(section.size, section.virtual_address)
             .ok_or(Error::FileBlockAlloc)?;
+        */
         let i = self.elf.sections.add(section);
         let section = &self.elf.sections[i];
         log::trace!(
@@ -860,62 +825,14 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
         Ok(i)
     }
 
-    fn alloc_file_block(&self, size: u64, memory_offset: u64) -> Option<u64> {
-        let allocations = self.get_file_allocations();
-        allocations.alloc_file_block(size, memory_offset)
-    }
-
-    fn alloc_section_header(&self, size: u64) -> Option<u64> {
-        let allocations = self.get_file_allocations();
-        allocations.alloc_memory_block(size, self.page_size)
-    }
-
-    fn get_file_allocations(&self) -> Allocations {
-        let mut allocations = Allocations::new(self.page_size);
-        allocations.extend(
-            self.elf
-                .sections
-                .iter()
-                .filter(|section| !matches!(section.kind, SectionKind::NoBits | SectionKind::Null))
-                .map(|section| (section.offset, section.offset + section.size)),
+    fn alloc_section_header(&mut self, size: u64) -> Option<u64> {
+        let alloc = SpaceAllocator::new(
+            self.header.class,
+            self.page_size,
+            &self.elf.sections,
+            &mut self.elf.segments,
         );
-        allocations.extend(
-            self.elf
-                .segments
-                .iter()
-                .map(|segment| (segment.offset, segment.offset + segment.file_size)),
-        );
-        allocations.finish(self.elf.header.len as u64);
-        allocations
-    }
-
-    fn alloc_memory_block(&self, size: u64, align: u64) -> Option<u64> {
-        let mut allocations = Allocations::new(self.page_size);
-        allocations.extend(
-            self.elf
-                .sections
-                .iter()
-                .filter(|section| {
-                    !matches!(section.kind, SectionKind::Null)
-                        && section.flags.contains(SectionFlags::ALLOC)
-                })
-                .map(|section| {
-                    let Range { start, end } = section.virtual_address_range();
-                    (start, end)
-                }),
-        );
-        allocations.extend(
-            self.elf
-                .segments
-                .iter()
-                .filter(|segment| segment.kind == SegmentKind::Loadable)
-                .map(|segment| {
-                    let Range { start, end } = segment.virtual_address_range();
-                    (start, end)
-                }),
-        );
-        allocations.finish(self.min_memory_offset);
-        allocations.alloc_memory_block(size, align)
+        alloc.allocate_file_space(size, SECTION_HEADER_ALIGN)
     }
 
     pub fn read_section(&mut self, name: &CStr) -> Result<Option<Vec<u8>>, Error> {

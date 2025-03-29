@@ -325,10 +325,6 @@ mod tests {
                 let Some(file_name) = path.file_name() else {
                     continue;
                 };
-                // TODO
-                //if file_name.to_str().unwrap_or_default() != "cargo-deny" {
-                //    continue;
-                //}
                 if NOT_WORKING.contains(&file_name.to_str().unwrap_or_default()) {
                     // Known to not work.
                     continue;
@@ -557,17 +553,8 @@ mod tests {
         "scribus",
         // connect fails after a few retries
         "jack_transport",
-        // SIGSEGV, garbled `ldd` output
-        //"convco",           // working
-        //"cargo-sqlx",       // working
-        //"mdbook-linkcheck", // working
-        //"cargo-msrv",       // working
-        //"sqlx",             // working
-        //"cargo-about",      // working
+        // segmentation fault
         "cargo-deny",
-        //"darktable-rs-identify", // working
-        //"chromium",              // working
-        //"chromedriver",          // working
         // no --version arg
         "FBReader",
     ];

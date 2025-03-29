@@ -35,10 +35,9 @@ pub const DYNSTR_SECTION: &CStr = c".dynstr";
 pub const DYNAMIC_SECTION: &CStr = c".dynamic";
 pub const SYMTAB_SECTION: &CStr = c".symtab";
 
-#[allow(unused)]
+pub const INTERP_ALIGN: u64 = 1;
+pub const STRING_TABLE_ALIGN: u64 = 1;
 pub const DYNAMIC_ALIGN: u64 = 8;
 pub const DYNAMIC_ENTRY_LEN: u64 = 16;
-#[allow(unused)]
 pub const PHDR_ALIGN: u64 = 8;
-#[allow(unused)]
 pub const SECTION_HEADER_ALIGN: u64 = 8;

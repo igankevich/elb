@@ -3,7 +3,7 @@ use thiserror::Error;
 use crate::SectionKind;
 
 /// ELF-specific error.
-#[derive(Error, Debug)]
+#[derive(Error)]
 #[allow(missing_docs)]
 pub enum Error {
     #[error("Not an ELF file")]
@@ -61,10 +61,16 @@ pub enum Error {
     TooBigSignedWord(i64),
     #[error("Overlap: {0}")]
     Overlap(&'static str),
+    // TODO
     #[error("Failed to allocate file block")]
     FileBlockAlloc,
+    // TODO
     #[error("Failed to allocate memory block")]
     MemoryBlockAlloc,
+    #[error("Failed to allocate new section")]
+    SectionAlloc,
+    #[error("Failed to allocate new segment")]
+    SegmentAlloc,
     #[error("Input/output error: {0}")]
     #[cfg(feature = "std")]
     Io(std::io::Error),
@@ -91,6 +97,12 @@ impl From<std::io::ErrorKind> for Error {
         } else {
             Self::Io(other.into())
         }
+    }
+}
+
+impl core::fmt::Debug for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        core::fmt::Display::fmt(self, f)
     }
 }
 

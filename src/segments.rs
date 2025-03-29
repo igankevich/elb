@@ -250,15 +250,6 @@ impl ProgramHeader {
         );
         i
     }
-
-    /// Is the file offsets range covered by LOAD segment?
-    pub(crate) fn is_loadable(&self, file_offsets: Range<u64>) -> bool {
-        self.entries.iter().any(|segment| {
-            segment.kind == SegmentKind::Loadable
-                && segment.offset <= file_offsets.start
-                && file_offsets.end <= segment.offset + segment.file_size
-        })
-    }
 }
 
 impl Deref for ProgramHeader {
