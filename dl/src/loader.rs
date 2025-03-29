@@ -389,7 +389,7 @@ mod tests {
                                 fs_err::copy(&dep_file, &new_file).unwrap();
                                 fs_err::set_permissions(&new_file, Permissions::from_mode(0o755))
                                     .unwrap();
-                                let (elf, _deps) = loader.resolve_dependencies(&dep_file).unwrap();
+                                let (elf, deps) = loader.resolve_dependencies(&dep_file).unwrap();
                                 let file = OpenOptions::new()
                                     .read(true)
                                     .write(true)
@@ -405,7 +405,6 @@ mod tests {
                                     continue;
                                 }
                                 patcher.remove_interpreter().unwrap();
-                                /*
                                 let run_path = {
                                     let mut bytes = Vec::new();
                                     for dep in deps.into_iter() {
@@ -421,13 +420,9 @@ mod tests {
                                     bytes.push(0_u8);
                                     CString::from_vec_with_nul(bytes).unwrap()
                                 };
-                                elf.set_dynamic_c_str(
-                                    &mut file,
-                                    DynamicTag::RunPathOffset,
-                                    &run_path,
-                                )
-                                .unwrap();
-                                */
+                                patcher
+                                    .set_dynamic_c_str(DynamicTag::RunPathOffset, &run_path)
+                                    .unwrap();
                                 patcher.finish().unwrap();
                             }
                             let new_path = workdir.join(path.file_name().unwrap());
