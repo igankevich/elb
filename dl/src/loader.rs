@@ -24,14 +24,14 @@ use log::Level::Trace;
 use crate::Error;
 
 pub struct DynamicLoader {
-    pub system_search_paths: Vec<PathBuf>,
+    pub search_paths: Vec<PathBuf>,
     page_size: u64,
 }
 
 impl DynamicLoader {
     pub fn from_rootfs_dir<P: AsRef<Path>>(rootfs_dir: P) -> Result<Self, Error> {
         Ok(Self {
-            system_search_paths: get_search_dirs(rootfs_dir)?,
+            search_paths: get_search_dirs(rootfs_dir)?,
             page_size: 4096,
         })
     }
@@ -93,7 +93,7 @@ impl DynamicLoader {
                 }
             }
         }
-        search_paths.extend(self.system_search_paths.clone());
+        search_paths.extend(self.search_paths.clone());
         'outer: for (tag, value) in dynamic_table.iter() {
             if *tag != DynamicTag::Needed {
                 continue;
@@ -293,7 +293,7 @@ mod tests {
         let mut loader = DynamicLoader::from_rootfs_dir("/").unwrap();
         // TODO
         loader
-            .system_search_paths
+            .search_paths
             .push("/gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib".into());
         let mut visited = HashSet::new();
         for dir in paths.iter() {

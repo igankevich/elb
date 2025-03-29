@@ -1,6 +1,10 @@
 use clap::Parser;
 use clap::ValueEnum;
 use colored::Colorize;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::VecDeque;
+use std::env::split_paths;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::OsString;
@@ -74,6 +78,19 @@ struct DepsArgs {
     #[clap(short = 'r', long = "root", value_name = "DIR", default_value = "/")]
     root: PathBuf,
 
+    /// Override library search paths.
+    #[clap(short = 'L', long = "search-paths", value_name = "DIR1:DIR2:...")]
+    search_paths: Option<PathBuf>,
+
+    /// Tree visual style.
+    #[clap(
+        short = 's',
+        long = "style",
+        value_name = "STYLE",
+        default_value = "rounded"
+    )]
+    style: TreeStyleKind,
+
     /// ELF file.
     #[clap(value_name = "ELF file")]
     file: PathBuf,
@@ -118,7 +135,7 @@ fn do_main() -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         Command::Show { what, file } => show(args.common, what, file),
         Command::Check { file } => check(args.common, file),
-        Command::Deps(deps_args) => deps(deps_args),
+        Command::Deps(deps_args) => deps(args.common, deps_args),
         Command::Patch(patch_args) => patch(args.common, patch_args),
     }
 }
@@ -288,14 +305,90 @@ fn check(common: CommonArgs, file: PathBuf) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-fn deps(args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let loader = DynamicLoader::from_rootfs_dir(args.root)?;
-    let (_, dependencies) = loader.resolve_dependencies(args.file)?;
-    for dep in dependencies.iter() {
-        println!("{}", dep.display());
+fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let mut loader = DynamicLoader::from_rootfs_dir(args.root)?;
+    loader.set_page_size(common.page_size);
+    if let Some(search_paths) = args.search_paths.as_ref() {
+        loader.search_paths.extend(split_paths(search_paths));
     }
+    let mut table: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
+    let mut queue = VecDeque::new();
+    for path in loader.resolve_dependencies(&args.file)?.1.into_iter() {
+        let path = fs_err::canonicalize(path)?;
+        queue.push_back((args.file.clone(), path));
+    }
+    while let Some((dependent, dependency)) = queue.pop_front() {
+        if !table
+            .entry(dependent.clone())
+            .or_default()
+            .insert(dependency.clone())
+        {
+            continue;
+        }
+        for path in loader.resolve_dependencies(&dependency)?.1.into_iter() {
+            let path = fs_err::canonicalize(path)?;
+            queue.push_back((dependency.clone(), path));
+        }
+    }
+    let last = table.len() == 1;
+    let mut stack = VecDeque::new();
+    stack.push_back(last);
+    print_tree(&mut stack, args.file.clone(), &table, args.style.to_style());
     Ok(())
 }
+
+fn print_tree(
+    stack: &mut VecDeque<bool>,
+    node: PathBuf,
+    table: &BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+    style: TreeStyle,
+) {
+    let mut prev_last = stack.iter().skip(1).copied().next().unwrap_or(false);
+    for last in stack.iter().skip(2).copied() {
+        if prev_last {
+            print!("    ");
+        } else {
+            print!(" {}  ", style.0[2]);
+        }
+        prev_last = last;
+    }
+    if stack.len() > 1 {
+        let last = stack.iter().last().copied().unwrap_or(false);
+        let ch = if last { style.0[0] } else { style.0[3] };
+        print!(" {}{}{} ", ch, style.0[1], style.0[1]);
+    }
+    println!("{}", node.display());
+    let Some(children) = table.get(&node) else {
+        return;
+    };
+    for (i, child) in children.iter().enumerate() {
+        let last = i == children.len() - 1;
+        stack.push_back(last);
+        print_tree(stack, child.clone(), table, style);
+        stack.pop_back();
+    }
+}
+
+#[derive(clap::ValueEnum, Clone, Copy)]
+enum TreeStyleKind {
+    Ascii,
+    Rounded,
+}
+
+impl TreeStyleKind {
+    fn to_style(self) -> TreeStyle {
+        match self {
+            Self::Ascii => TREE_STYLE_ASCII,
+            Self::Rounded => TREE_STYLE_ROUNDED,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TreeStyle([char; 4]);
+
+const TREE_STYLE_ASCII: TreeStyle = TreeStyle(['\\', '_', '|', '|']);
+const TREE_STYLE_ROUNDED: TreeStyle = TreeStyle(['╰', '─', '│', '├']);
 
 fn patch(common: CommonArgs, args: PatchArgs) -> Result<(), Box<dyn std::error::Error>> {
     let elf = Elf::read(&mut File::open(&args.file)?, common.page_size)?;
