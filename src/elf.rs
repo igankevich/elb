@@ -11,15 +11,20 @@ use crate::ProgramHeader;
 use crate::SectionHeader;
 use crate::StringTable;
 
+/// ELF file.
 #[derive(Debug)]
 pub struct Elf {
+    /// File header.
     pub header: Header,
+    /// Program header (file segment list).
     pub segments: ProgramHeader,
+    /// Section header (file section list).
     pub sections: SectionHeader,
     page_size: u64,
 }
 
 impl Elf {
+    /// Read ELF from `reader` without validation.
     pub fn read_unchecked<R: ElfRead + ElfSeek>(
         reader: &mut R,
         page_size: u64,
@@ -48,14 +53,23 @@ impl Elf {
         })
     }
 
+    /// Read ELF from `reader` with validation.
+    ///
+    /// Page size is used during the validation.
     pub fn read<R: ElfRead + ElfSeek>(reader: &mut R, page_size: u64) -> Result<Self, Error> {
         let elf = Self::read_unchecked(reader, page_size)?;
-        elf.validate()?;
+        elf.check()?;
         Ok(elf)
     }
 
+    /// Validate and write ELF to `writer`.
     pub fn write<W: ElfWrite + ElfSeek>(self, writer: &mut W) -> Result<(), Error> {
-        self.validate()?;
+        self.check()?;
+        self.write_unchecked(writer)
+    }
+
+    /// Write ELF to `writer` without checking.
+    pub fn write_unchecked<W: ElfWrite + ElfSeek>(self, writer: &mut W) -> Result<(), Error> {
         writer.seek(0)?;
         self.header.write(writer)?;
         writer.seek(self.header.program_header_offset)?;
@@ -67,7 +81,10 @@ impl Elf {
         Ok(())
     }
 
-    pub fn validate(&self) -> Result<(), Error> {
+    /// Check consistency of the data.
+    ///
+    /// Validates internal ELF invariants.
+    pub fn check(&self) -> Result<(), Error> {
         self.header.check()?;
         self.segments.validate(&self.header, self.page_size)?;
         self.sections.validate(&self.header, &self.segments)?;
@@ -76,34 +93,35 @@ impl Elf {
         Ok(())
     }
 
+    /// Read string table containing section names.
     pub fn read_section_names<F: ElfRead + ElfSeek>(
         &self,
         file: &mut F,
-    ) -> Result<StringTable, Error> {
-        let section = self.sections.get(self.header.section_names_index as usize);
-        if let Some(section) = section {
-            Ok(section.read_content(file)?.into())
-        } else {
-            Ok(Default::default())
-        }
+    ) -> Result<Option<StringTable>, Error> {
+        let Some(section) = self.sections.get(self.header.section_names_index as usize) else {
+            return Ok(None);
+        };
+        Ok(Some(section.read_content(file)?.into()))
     }
 
+    /// Read the contents of the specified by name.
     pub fn read_section<R: ElfRead + ElfSeek>(
         &self,
         name: &CStr,
+        names: &StringTable,
         file: &mut R,
     ) -> Result<Option<Vec<u8>>, Error> {
-        let names = self.read_section_names(file)?;
-        let i = self
+        let Some(i) = self
             .sections
             .iter()
-            .position(|section| Some(name) == names.get_string(section.name_offset as usize));
-        match i {
-            Some(i) => Ok(Some(self.sections[i].read_content(file)?)),
-            None => Ok(None),
-        }
+            .position(|section| Some(name) == names.get_string(section.name_offset as usize))
+        else {
+            return Ok(None);
+        };
+        Ok(Some(self.sections[i].read_content(file)?))
     }
 
+    /// Get page size specified on creation.
     pub fn page_size(&self) -> u64 {
         self.page_size
     }

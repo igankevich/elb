@@ -27,14 +27,27 @@ bitflags! {
         ///
         /// Should be placed in a [loadable](crate::SegmentKind::Loadable) segment.
         const ALLOC = 1 << 1;
-        const EXECINSTR = 1 << 2;
+        /// Executable section.
+        const EXECUTABLE = 1 << 2;
+        /// Mergeable section.
         const MERGE = 1 << 4;
+        /// Contains NUL-terminated strings.
+        ///
+        /// This flags doesn't need to be set for string tables.
         const STRINGS = 1 << 5;
+        /// [`Section::info`](crate::Section::info) contains the index of another section.
+        ///
+        /// `info` field might refernce another section even without this flag.
         const INFO_LINK = 1 << 6;
+        /// Preserve link order.
         const LINK_ORDER = 1 << 7;
+        /// OS-specific flag.
         const OS_NONCONFORMING = 1 << 8;
+        /// Section is a member of a group.
         const GROUP = 1 << 9;
+        /// Section contains thread-local data.
         const TLS = 1 << 10;
+        /// Compressed section.
         const COMPRESSED = 1 << 11;
         // Any bits can be set.
         const _ = !0;
@@ -94,9 +107,13 @@ impl RiscvFlags {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[repr(u8)]
 pub enum RiscvFloatAbi {
+    /// No registers for floating point numbers.
     Soft = 0x0,
+    /// 4-byte registers for floating point numbers.
     Single = 0x2,
+    /// 8-byte registers for floating point numbers.
     Double = 0x4,
+    /// 16-byte registers for floating point numbers.
     Quad = 0x6,
 }
 

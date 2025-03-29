@@ -71,7 +71,7 @@ impl Header {
         let os_abi = reader.read_u8()?.into();
         let abi_version = reader.read_u8()?;
         reader.read_bytes(&mut [0_u8; 7])?;
-        let kind: FileKind = reader.read_u16(byte_order)?.try_into()?;
+        let kind: FileKind = reader.read_u16(byte_order)?.into();
         let machine = reader.read_u16(byte_order)?.into();
         let version = reader.read_u8()?;
         if version != VERSION {
@@ -202,10 +202,12 @@ impl Header {
         Ok(())
     }
 
+    /// The size in bytes of the program header (the list of segments).
     pub const fn program_header_len(&self) -> u64 {
         self.segment_len as u64 * self.num_segments as u64
     }
 
+    /// The size in bytes of the section header (the list of sections).
     pub const fn section_header_len(&self) -> u64 {
         self.section_len as u64 * self.num_sections as u64
     }

@@ -20,7 +20,7 @@ use log::Level::Trace;
 use crate::Error;
 
 pub struct DynamicLoader {
-    pub search_paths: Vec<PathBuf>,
+    search_paths: Vec<PathBuf>,
     page_size: u64,
 }
 
@@ -31,11 +31,6 @@ impl DynamicLoader {
             search_paths,
             page_size,
         }
-    }
-
-    pub fn set_page_size(&mut self, value: u64) {
-        assert!(value.is_power_of_two());
-        self.page_size = value;
     }
 
     pub fn resolve_dependencies<P: AsRef<Path>>(
@@ -54,7 +49,7 @@ impl DynamicLoader {
             .read_interpreter()?
             .map(|c_str| PathBuf::from(OsStr::from_bytes(c_str.to_bytes())));
         let mut search_paths = Vec::new();
-        for key in [DynamicTag::RunPathOffset, DynamicTag::RpathOffset] {
+        for key in [DynamicTag::Runpath, DynamicTag::Rpath] {
             for dir in dynamic_table
                 .iter()
                 .filter_map(|(tag, value)| {
@@ -69,8 +64,8 @@ impl DynamicLoader {
                 let dir = interpolate(&dir, dependent_file, patcher.elf());
                 if log_enabled!(Trace) {
                     let what = match key {
-                        DynamicTag::RpathOffset => "rpath",
-                        DynamicTag::RunPathOffset => "runpath",
+                        DynamicTag::Rpath => "rpath",
+                        DynamicTag::Runpath => "runpath",
                         _ => "library path",
                     };
                     trace!("Found {} {:?} in {:?}", what, dir, dependent_file);
@@ -265,7 +260,10 @@ mod tests {
                         let Ok(Some(_)) = patcher.read_interpreter() else {
                             continue;
                         };
-                        let Ok(Some(data)) = patcher.read_section(c".rodata") else {
+                        let section_names =
+                            patcher.read_section_names().unwrap().unwrap_or_default();
+                        let Ok(Some(data)) = patcher.read_section(c".rodata", &section_names)
+                        else {
                             continue;
                         };
                         let mut working_arg = None;
@@ -341,7 +339,7 @@ mod tests {
                                     CString::from_vec_with_nul(bytes).unwrap()
                                 };
                                 patcher
-                                    .set_dynamic_c_str(DynamicTag::RunPathOffset, &run_path)
+                                    .set_dynamic_c_str(DynamicTag::Runpath, &run_path)
                                     .unwrap();
                                 patcher.finish().unwrap();
                             }
@@ -391,9 +389,9 @@ mod tests {
                                 bytes.push(0_u8);
                                 CString::from_vec_with_nul(bytes).unwrap()
                             };
-                            patcher.remove_dynamic(DynamicTag::RunPathOffset).unwrap();
+                            patcher.remove_dynamic(DynamicTag::Runpath).unwrap();
                             patcher
-                                .set_dynamic_c_str(DynamicTag::RpathOffset, &run_path)
+                                .set_dynamic_c_str(DynamicTag::Rpath, &run_path)
                                 .unwrap();
                             patcher.finish().unwrap();
                             let actual_result = Command::new(&new_path)

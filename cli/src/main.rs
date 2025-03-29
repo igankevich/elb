@@ -8,6 +8,8 @@ use std::env::split_paths;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::OsString;
+use std::io::BufWriter;
+use std::io::Write;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -92,6 +94,15 @@ struct DepsArgs {
     )]
     style: TreeStyleKind,
 
+    /// Data output format.
+    #[clap(
+        short = 'f',
+        long = "format",
+        value_name = "FORMAT",
+        default_value = "tree"
+    )]
+    format: DepsFormat,
+
     /// ELF file.
     #[clap(value_name = "ELF file")]
     file: PathBuf,
@@ -144,7 +155,7 @@ fn do_main() -> Result<(), Box<dyn std::error::Error>> {
 fn show(common: CommonArgs, what: What, file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::open(&file)?;
     let elf = Elf::read_unchecked(&mut file, common.page_size)?;
-    let section_names = elf.read_section_names(&mut file)?;
+    let section_names = elf.read_section_names(&mut file)?.unwrap_or_default();
     match what {
         What::Header => {
             let mut printer = Printer::new(false);
@@ -168,7 +179,7 @@ fn show(common: CommonArgs, what: What, file: PathBuf) -> Result<(), Box<dyn std
             show_segments(&elf, &section_names, &mut printer)?;
         }
     }
-    elf.validate()?;
+    elf.check()?;
     Ok(())
 }
 
@@ -307,10 +318,14 @@ fn check(common: CommonArgs, file: PathBuf) -> Result<(), Box<dyn std::error::Er
 }
 
 fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let mut loader = DynamicLoader::new(common.page_size, ld_so::get_search_dirs(&args.root)?);
-    if let Some(search_paths) = args.search_paths.as_ref() {
-        loader.search_paths.extend(split_paths(search_paths));
-    }
+    let search_paths = {
+        let mut search_paths = ld_so::get_search_dirs(&args.root)?;
+        if let Some(path) = args.search_paths.as_ref() {
+            search_paths.extend(split_paths(path));
+        }
+        search_paths
+    };
+    let loader = DynamicLoader::new(common.page_size, search_paths);
     let mut table: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
     let mut queue = VecDeque::new();
     for path in loader.resolve_dependencies(&args.file)?.1.into_iter() {
@@ -330,43 +345,80 @@ fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error::Er
             queue.push_back((dependency.clone(), path));
         }
     }
-    let last = table.len() == 1;
-    let mut stack = VecDeque::new();
-    stack.push_back(last);
-    print_tree(&mut stack, args.file.clone(), &table, args.style.to_style());
+    let style = args.style.to_style();
+    let mut writer = BufWriter::new(std::io::stdout());
+    match args.format {
+        DepsFormat::List => {
+            let mut all_dependencies = BTreeSet::new();
+            all_dependencies.extend(table.remove(&args.file).unwrap_or_default());
+            for (dependent, dependencies) in table.into_iter() {
+                all_dependencies.insert(dependent);
+                all_dependencies.extend(dependencies);
+            }
+            for dep in all_dependencies.into_iter() {
+                writeln!(writer, "{}", dep.display())?;
+            }
+        }
+        DepsFormat::Tree => {
+            let last = table.len() == 1;
+            let mut stack = VecDeque::new();
+            stack.push_back(last);
+            print_tree(&mut writer, &mut stack, args.file.clone(), &table, style)?;
+        }
+        DepsFormat::TableTree => {
+            for (dependent, dependencies) in table.into_iter() {
+                let last = true;
+                let mut stack = VecDeque::new();
+                stack.push_back(last);
+                let mut table = BTreeMap::new();
+                table.insert(dependent.clone(), dependencies);
+                print_tree(&mut writer, &mut stack, dependent.clone(), &table, style)?;
+            }
+        }
+    }
+    writer.flush()?;
     Ok(())
 }
 
-fn print_tree(
+fn print_tree<W: Write>(
+    writer: &mut W,
     stack: &mut VecDeque<bool>,
     node: PathBuf,
     table: &BTreeMap<PathBuf, BTreeSet<PathBuf>>,
     style: TreeStyle,
-) {
+) -> Result<(), std::io::Error> {
     let mut prev_last = stack.iter().skip(1).copied().next().unwrap_or(false);
     for last in stack.iter().skip(2).copied() {
         if prev_last {
-            print!("    ");
+            write!(writer, "    ")?;
         } else {
-            print!(" {}  ", style.0[2]);
+            write!(writer, " {}  ", style.0[2])?;
         }
         prev_last = last;
     }
     if stack.len() > 1 {
         let last = stack.iter().last().copied().unwrap_or(false);
         let ch = if last { style.0[0] } else { style.0[3] };
-        print!(" {}{}{} ", ch, style.0[1], style.0[1]);
+        write!(writer, " {}{}{} ", ch, style.0[1], style.0[1])?;
     }
-    println!("{}", node.display());
+    writeln!(writer, "{}", node.display())?;
     let Some(children) = table.get(&node) else {
-        return;
+        return Ok(());
     };
     for (i, child) in children.iter().enumerate() {
         let last = i == children.len() - 1;
         stack.push_back(last);
-        print_tree(stack, child.clone(), table, style);
+        print_tree(writer, stack, child.clone(), table, style)?;
         stack.pop_back();
     }
+    Ok(())
+}
+
+#[derive(clap::ValueEnum, Clone, Copy)]
+enum DepsFormat {
+    List,
+    Tree,
+    TableTree,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy)]
@@ -485,8 +537,8 @@ enum DynamicEntry {
 impl From<DynamicEntry> for elfie::DynamicTag {
     fn from(other: DynamicEntry) -> Self {
         match other {
-            DynamicEntry::Rpath => Self::RpathOffset,
-            DynamicEntry::Runpath => Self::RunPathOffset,
+            DynamicEntry::Rpath => Self::Rpath,
+            DynamicEntry::Runpath => Self::Runpath,
         }
     }
 }

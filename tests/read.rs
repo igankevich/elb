@@ -40,7 +40,7 @@ fn read_elf_files_from_file_system() {
                     panic!("Failed to parse {:?}: {e}", path);
                 }
             };
-            if let Err(e) = elf.validate() {
+            if let Err(e) = elf.check() {
                 panic!("Failed to validate {:?}: {e}", path);
             }
         }

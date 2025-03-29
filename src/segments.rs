@@ -68,19 +68,29 @@ impl ProgramHeader {
         self.validate_sorted()?;
         self.validate_overlap(page_size)?;
         self.validate_entry_point(header.entry_point)?;
+        self.validate_count()?;
+        self.validate_order()?;
         self.validate_phdr()?;
         Ok(())
     }
 
     /// Prepare segments for writing.
     ///
-    /// Sort `LOAD` segments by their virtual address and places `PHDR` segment in the front.
+    /// Sort `LOAD` segments by their virtual address and places `PHDR` and `INTERP` segments in the front.
     pub fn finish(&mut self) {
         self.entries.sort_unstable_by(|a, b| {
+            // PHDR should  preceed any LOAD segment.
             if a.kind == SegmentKind::ProgramHeader {
                 return Ordering::Less;
             }
             if b.kind == SegmentKind::ProgramHeader {
+                return Ordering::Greater;
+            }
+            // INTERP should preceed any LOAD segment.
+            if a.kind == SegmentKind::Interpreter {
+                return Ordering::Less;
+            }
+            if b.kind == SegmentKind::Interpreter {
                 return Ordering::Greater;
             }
             a.virtual_address.cmp(&b.virtual_address)
@@ -164,43 +174,58 @@ impl ProgramHeader {
         Ok(())
     }
 
-    fn validate_phdr(&self) -> Result<(), Error> {
-        let mut phdr = None;
+    fn validate_count(&self) -> Result<(), Error> {
+        use SegmentKind::*;
+        for kind in [ProgramHeader, Interpreter] {
+            if self
+                .entries
+                .iter()
+                .filter(|segment| segment.kind == kind)
+                .count()
+                > 1
+            {
+                return Err(Error::MultipleSegments(kind));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_order(&self) -> Result<(), Error> {
+        use SegmentKind::*;
         let mut load_found = false;
         for segment in self.entries.iter() {
             match segment.kind {
-                SegmentKind::ProgramHeader => {
-                    if load_found {
-                        return Err(Error::InvalidProgramHeaderSegment(
-                            "PHDR segment should come before any LOAD segment",
-                        ));
-                    }
-                    phdr = Some(segment);
+                ProgramHeader | Interpreter if load_found => {
+                    return Err(Error::NotPreceedingLoadSegment(segment.kind))
                 }
-                SegmentKind::Loadable => {
-                    load_found = true;
-                }
+                Loadable => load_found = true,
                 _ => {}
             }
-            if load_found && phdr.is_some() {
-                break;
-            }
         }
-        if let Some(phdr) = phdr {
-            if !self.entries.iter().any(|segment| {
-                if segment.kind != SegmentKind::Loadable {
-                    return false;
-                }
-                let segment_start = segment.virtual_address;
-                let segment_end = segment_start + segment.memory_size;
-                let phdr_start = phdr.virtual_address;
-                let phdr_end = phdr_start + phdr.memory_size;
-                segment_start <= phdr_start && phdr_start <= segment_end && phdr_end <= segment_end
-            }) {
-                return Err(Error::InvalidProgramHeaderSegment(
-                    "PHDR segment should be covered by a LOAD segment",
-                ));
+        Ok(())
+    }
+
+    fn validate_phdr(&self) -> Result<(), Error> {
+        let Some(phdr) = self
+            .entries
+            .iter()
+            .find(|entry| entry.kind == SegmentKind::ProgramHeader)
+        else {
+            return Ok(());
+        };
+        if !self.entries.iter().any(|segment| {
+            if segment.kind != SegmentKind::Loadable {
+                return false;
             }
+            let segment_start = segment.virtual_address;
+            let segment_end = segment_start + segment.memory_size;
+            let phdr_start = phdr.virtual_address;
+            let phdr_end = phdr_start + phdr.memory_size;
+            segment_start <= phdr_start && phdr_start <= segment_end && phdr_end <= segment_end
+        }) {
+            return Err(Error::InvalidProgramHeaderSegment(
+                "PHDR segment should be covered by a LOAD segment",
+            ));
         }
         Ok(())
     }
@@ -305,7 +330,7 @@ impl EntityIo for Segment {
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<Self, Error> {
-        let kind: SegmentKind = reader.read_u32(byte_order)?.try_into()?;
+        let kind: SegmentKind = reader.read_u32(byte_order)?.into();
         let mut flags = 0;
         if class == Class::Elf64 {
             flags = reader.read_u32(byte_order)?;

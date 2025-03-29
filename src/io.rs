@@ -7,6 +7,7 @@ use Class::*;
 
 macro_rules! define_read {
     ($func: ident, $uint: ident) => {
+        #[doc = concat!("Read `", stringify!($uint), "`.")]
         fn $func(&mut self, byte_order: ByteOrder) -> Result<$uint, crate::Error> {
             let mut bytes = [0_u8; ::core::mem::size_of::<$uint>()];
             self.read_bytes(&mut bytes[..])?;
@@ -21,14 +22,19 @@ macro_rules! define_read {
 
 /// ELF-specific read functions.
 pub trait ElfRead {
+    /// Read enough bytes to fill the buffer `buf`.
+    ///
+    /// Similar to [`Read::read_exact`](std::io::Read::read_exact).
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), crate::Error>;
 
+    /// Read one byte as `u8`.
     fn read_u8(&mut self) -> Result<u8, crate::Error> {
         let mut bytes = [0_u8; 1];
         self.read_bytes(&mut bytes[..])?;
         Ok(bytes[0])
     }
 
+    /// Read one byte as `i8`.
     fn read_i8(&mut self) -> Result<i8, crate::Error> {
         let mut bytes = [0_u8; 1];
         self.read_bytes(&mut bytes[..])?;
@@ -43,6 +49,9 @@ pub trait ElfRead {
     define_read!(read_u32, u32);
     define_read!(read_u64, u64);
 
+    /// Read one word.
+    ///
+    /// Reads `u32` when the class is [`Class::Elf32`], reads `u64` otherwise.
     fn read_word(&mut self, class: Class, byte_order: ByteOrder) -> Result<u64, crate::Error> {
         match class {
             Elf32 => self.read_u32(byte_order).map(Into::into),
@@ -73,6 +82,7 @@ impl ElfRead for &[u8] {
 
 macro_rules! define_write {
     ($func: ident, $uint: ident) => {
+        #[doc = concat!("Write `", stringify!($uint), "`.")]
         fn $func(&mut self, byte_order: ByteOrder, value: $uint) -> Result<(), Error> {
             let bytes = match byte_order {
                 LittleEndian => value.to_le_bytes(),
@@ -85,17 +95,27 @@ macro_rules! define_write {
 
 /// ELF-specific write functions.
 pub trait ElfWrite {
+    /// Write one byte as `u8`.
     fn write_u8(&mut self, value: u8) -> Result<(), Error> {
         self.write_bytes(&[value])
+    }
+
+    /// Write one byte as `i8`.
+    fn write_i8(&mut self, value: i8) -> Result<(), Error> {
+        self.write_bytes(&value.to_ne_bytes())
     }
 
     define_write!(write_u16, u16);
     define_write!(write_u32, u32);
     define_write!(write_u64, u64);
 
+    define_write!(write_i16, i16);
     define_write!(write_i32, i32);
     define_write!(write_i64, i64);
 
+    /// Write one word.
+    ///
+    /// Writes `u32` when the class is [`Class::Elf32`], writes `u64` otherwise.
     fn write_word(&mut self, class: Class, byte_order: ByteOrder, value: u64) -> Result<(), Error> {
         match class {
             Elf32 => {
@@ -107,6 +127,7 @@ pub trait ElfWrite {
         Ok(())
     }
 
+    /// Write a word specified by `value`.
     fn write_word_as_u32(
         &mut self,
         class: Class,
@@ -119,6 +140,7 @@ pub trait ElfWrite {
         }
     }
 
+    /// Write `value` as `u64`.
     fn write_u32_as_u64(&mut self, byte_order: ByteOrder, value: u64) -> Result<(), Error> {
         self.write_u32(
             byte_order,
@@ -126,6 +148,7 @@ pub trait ElfWrite {
         )
     }
 
+    /// Write `value` as `i32`.
     fn write_i32_as_i64(&mut self, byte_order: ByteOrder, value: i64) -> Result<(), Error> {
         self.write_i32(
             byte_order,
@@ -135,6 +158,9 @@ pub trait ElfWrite {
         )
     }
 
+    /// Write all bytes.
+    ///
+    /// Similar to [`Write::write_all`](std::io::Write::write_all).
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error>;
 }
 
@@ -147,6 +173,7 @@ impl<W: std::io::Write + ?Sized> ElfWrite for W {
 
 /// ELF-specific seek functions.
 pub trait ElfSeek {
+    /// Seek to the specified offset from the start of the file.
     fn seek(&mut self, offset: u64) -> Result<(), Error>;
 }
 

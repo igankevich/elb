@@ -1,19 +1,16 @@
+#![allow(missing_docs)]
+
 use crate::define_infallible_enum;
-use crate::define_specific_enum;
 use crate::Error;
 
-define_specific_enum! {
+define_infallible_enum! {
     "ELF file type.",
     FileKind, u16,
-    InvalidFileKind,
-    file_kind_tests,
-    (None, 0),
-    (Relocatable, 1),
-    (Executable, 2),
-    (Shared, 3),
-    (Core, 4),
-    Range(OsSpecific(0xfe00, 0xfeff)),
-    Range(ProcSpecific(0xff00, 0xffff)),
+    (None, 0, "Unknown file type."),
+    (Relocatable, 1, "Relocatable file."),
+    (Executable, 2, "Executable file."),
+    (Shared, 3, "Shared object."),
+    (Core, 4, "Core dump."),
 }
 
 impl FileKind {
@@ -26,20 +23,20 @@ impl FileKind {
 define_infallible_enum! {
     "Operating system ABI.",
     OsAbi, u8,
-    (Sysv, 0),
-    (Hpux, 1),
-    (Netbsd, 2),
-    (Linux, 3),
-    (Solaris, 6),
-    (Aix, 7),
-    (Irix, 8),
-    (Freebsd, 9),
-    (Tru64, 10),
-    (Modesto, 11),
-    (Openbsd, 12),
-    (ArmAeabi, 64),
-    (Arm, 97),
-    (Standalone, 255),
+    (Sysv, 0, "UNIX System V."),
+    (Hpux, 1, "HP-UX."),
+    (Netbsd, 2, "NetBSD."),
+    (Gnu, 3, "Linux/GNU."),
+    (Solaris, 6, "Solaris."),
+    (Aix, 7, "IBM AIX."),
+    (Irix, 8, "SGI IRIX."),
+    (Freebsd, 9, "FreeBSD."),
+    (Tru64, 10, "Compaq TRU64 UNIX."),
+    (Modesto, 11, "Novell Modesto."),
+    (Openbsd, 12, "OpenBSD."),
+    (ArmAeabi, 64, "Arm EABI."),
+    (Arm, 97, "Arm."),
+    (Standalone, 255, "Standalone (embedded)."),
 }
 
 impl OsAbi {
@@ -52,15 +49,15 @@ impl OsAbi {
 define_infallible_enum! {
     "Architecture.",
     Machine, u16,
-    (None, 0),
+    (None, 0, "Unknown architecture."),
     (M32, 1),
     (Sparc, 2),
-    (I386, 3),
+    (I386, 3, "Intel 386."),
     (M68k, 4),
     (M88k, 5),
     (Iamcu, 6),
     (I860, 7),
-    (Mips, 8),
+    (Mips, 8, "MIPS."),
     (S370, 9),
     (MipsRs3Le, 10),
     (Parisc, 15),
@@ -75,7 +72,7 @@ define_infallible_enum! {
     (Fr20, 37),
     (Rh32, 38),
     (Rce, 39),
-    (Arm, 40),
+    (Arm, 40, "Arm 32-bit."),
     (FakeAlpha, 41),
     (Sh, 42),
     (Sparcv9, 43),
@@ -97,7 +94,7 @@ define_infallible_enum! {
     (Me16, 59),
     (St100, 60),
     (Tinyj, 61),
-    (X86_64, 62),
+    (X86_64, 62, "AMD x86-64."),
     (Pdsp, 63),
     (Pdp10, 64),
     (Pdp11, 65),
@@ -192,13 +189,13 @@ define_infallible_enum! {
     (Sle9x, 179),
     (L10m, 180),
     (K10m, 181),
-    (Aarch64, 183),
+    (Aarch64, 183, "Arm 64-bit."),
     (Avr32, 185),
     (Stm8, 186),
     (Tile64, 187),
     (Tilepro, 188),
     (Microblaze, 189),
-    (Cuda, 190),
+    (Cuda, 190, "NVIDIA CUDA."),
     (Tilegx, 191),
     (Cloudshield, 192),
     (Corea1st, 193),
@@ -228,9 +225,9 @@ define_infallible_enum! {
     (Visium, 221),
     (Ft32, 222),
     (Moxie, 223),
-    (Amdgpu, 224),
-    (Riscv, 243),
-    (Bpf, 247),
+    (Amdgpu, 224, "AMD GPU."),
+    (Riscv, 243, "RISC-V."),
+    (Bpf, 247, "Linux BPF."),
     (Csky, 252),
     (Loongarch, 258),
 }
@@ -242,21 +239,17 @@ impl Machine {
     }
 }
 
-define_specific_enum! {
+define_infallible_enum! {
     "Segment type.",
     SegmentKind, u32,
-    InvalidSegmentKind,
-    segment_kind_tests,
-    (Null, 0),
-    (Loadable, 1),
-    (Dynamic, 2),
-    (Interpreter, 3),
-    (Note, 4),
-    (Shlib, 5),
-    (ProgramHeader, 6),
-    (Tls, 7),
-    Range(OsSpecific(0x60000000, 0x6fffffff)),
-    Range(ProcSpecific(0x70000000, 0x7fffffff)),
+    (Null, 0, "Inactive/removed segment."),
+    (Loadable, 1, "A segment that is mapped from the file into memory segment on program execution."),
+    (Dynamic, 2, "A segment that contains dynamic linking information."),
+    (Interpreter, 3, "A segment that contains NUL-terminated interpreter path."),
+    (Note, 4, "A segment that contains notes."),
+    (Shlib, 5, "Reserved."),
+    (ProgramHeader, 6, "A segment that contains program header itself."),
+    (Tls, 7, "A segment that contains thread-local storage."),
 }
 
 impl SegmentKind {
@@ -266,31 +259,29 @@ impl SegmentKind {
     }
 }
 
-define_specific_enum! {
+define_infallible_enum! {
     "Dynamic table tag.",
     DynamicTag, u32,
-    InvalidDynamicEntryKind,
-    dynamic_tag_tests,
-    (Null, 0),
-    (Needed, 1),
+    (Null, 0, "End of the table."),
+    (Needed, 1, "String table offset to the name of the needed library."),
     (PltRelSize, 2),
     (PltGot, 3),
-    (Hash, 4),
-    (StringTableAddress, 5),
-    (SymbolTableAddress, 6),
-    (RelaTableAddress, 7),
-    (RelaTableSize, 8),
-    (RelaEntrySize, 9),
-    (StringTableSize, 10),
-    (SymbolEntrySize, 11),
+    (Hash, 4, "The address of the symbol hash table."),
+    (StringTableAddress, 5, "The address of the string table."),
+    (SymbolTableAddress, 6, "The address of the symbol table."),
+    (RelaTableAddress, 7, "The address of the relocation with addends table."),
+    (RelaTableSize, 8, "The size in bytes of the relocation with addends table."),
+    (RelaEntrySize, 9, "Relocation with addends entry size."),
+    (StringTableSize, 10, "The size in bytes of the string table."),
+    (SymbolEntrySize, 11, "Symbol table entry size."),
     (InitAddress, 12),
     (FiniAddress, 13),
-    (SharedObjectName, 14),
-    (RpathOffset, 15),
+    (SharedObjectName, 14, "String table offset to the name of the shared object."),
+    (Rpath, 15, "String table offset to the library search path."),
     (Symbolic, 16),
-    (RelTableAddress, 17),
-    (RelTableSize, 18),
-    (RelEntrySize, 19),
+    (RelTableAddress, 17, "The address of relocation table."),
+    (RelTableSize, 18, "The size in bytes of the relocation table."),
+    (RelEntrySize, 19, "Relocation entry size."),
     (PltRel, 20),
     (Debug, 21),
     (TextRel, 22),
@@ -300,18 +291,14 @@ define_specific_enum! {
     (FiniArray, 26),
     (InitArraySize, 27),
     (FiniArraySize, 28),
-    (RunPathOffset, 29),
+    (Runpath, 29, "String table offset to the library search path."),
     (Flags, 30),
     (PreInitArray, 32),
     (PreInitArraySize, 33),
     (SymbolTableIndex, 34),
-    (RelrTableSize, 35),
-    (RelrTableAddress, 36),
-    (RelrEntrySize, 37),
-    Range(OsSpecific(0x6000000d, 0x6ffff000)),
-    //Range(Other(0x6ffff001, 0x6fffffff)),
-    Range(ProcSpecific(0x70000000, 0x7fffffff)),
-    Other(Other)
+    (RelrTableSize, 35, "The size in bytes of the relative relocation table."),
+    (RelrTableAddress, 36, "The address of relative relocation table."),
+    (RelrEntrySize, 37, "Relative relocation entry size."),
 }
 
 impl DynamicTag {
@@ -324,39 +311,32 @@ impl DynamicTag {
 impl TryFrom<u64> for DynamicTag {
     type Error = Error;
     fn try_from(other: u64) -> Result<Self, Self::Error> {
-        let number: u32 = other
-            .try_into()
-            .map_err(|_| Error::TooBig("dynamic-entry-type"))?;
-        number.try_into()
+        let number: u32 = other.try_into().map_err(|_| Error::TooBig("dynamic-tag"))?;
+        Ok(number.into())
     }
 }
 
-define_specific_enum! {
+define_infallible_enum! {
     "Section type.",
     SectionKind, u32,
-    InvalidSectionKind,
-    section_kind_tests,
-    (Null, 0),
-    (ProgramData, 1),
-    (SymbolTable, 2),
-    (StringTable, 3),
-    (RelaTable, 4),
-    (Hash, 5),
-    (Dynamic, 6),
-    (Note, 7),
-    (NoBits, 8),
-    (RelTable, 9),
-    (Shlib, 10),
-    (DynamicSymbolTable, 11),
-    (InitArray, 14),
-    (FiniArray, 15),
-    (PreInitArray, 16),
-    (Group, 17),
-    (SymbolTableIndex, 18),
-    (RelrTable, 19),
-    Range(OsSpecific(0x60000000, 0x6fffffff)),
-    Range(ProcSpecific(0x70000000, 0x7fffffff)),
-    Range(UserSpecific(0x80000000, 0x8fffffff)),
+    (Null, 0, "Inactive/removed section."),
+    (ProgramBits, 1, "Program-related data."),
+    (SymbolTable, 2, "Symbol table."),
+    (StringTable, 3, "String table."),
+    (RelaTable, 4, "Relocation entries with addends."),
+    (Hash, 5, "Symbol hash table."),
+    (Dynamic, 6, "Dynamic linking information."),
+    (Note, 7, "Notes."),
+    (NoBits, 8, "Same as `ProgramBits` but occupies no space in the file."),
+    (RelTable, 9, "Relocation entries without addends."),
+    (Shlib, 10, "Reserved."),
+    (DynamicSymbolTable, 11, "Dynamic linker symbol table."),
+    (InitArray, 14, "Constructors."),
+    (FiniArray, 15, "Destructors."),
+    (PreInitArray, 16, "Pre-constructors."),
+    (Group, 17, "Section group."),
+    (SymbolTableIndex, 18, "Extended section indices."),
+    (RelrTable, 19, "Relative relocation entries."),
 }
 
 impl SectionKind {

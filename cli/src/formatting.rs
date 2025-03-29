@@ -10,7 +10,7 @@ impl std::fmt::Display for SectionKindStr {
         use SectionKind::*;
         let s = match self.0 {
             Null => Some("NULL"),
-            ProgramData => Some("PROGBITS"),
+            ProgramBits => Some("PROGBITS"),
             SymbolTable => Some("SYMTAB"),
             StringTable => Some("STRTAB"),
             RelaTable => Some("RELA"),
@@ -27,13 +27,13 @@ impl std::fmt::Display for SectionKindStr {
             Group => Some("GROUP"),
             SymbolTableIndex => Some("SYMTAB_SHNDX"),
             RelrTable => Some("RELR"),
-            OsSpecific(0x6ffffff5) => Some("GNU_ATTRIBUTES"),
-            OsSpecific(0x6ffffff6) => Some("GNU_HASH"),
-            OsSpecific(0x6ffffff7) => Some("GNU_LIBLIST"),
-            OsSpecific(0x6ffffff8) => Some("CHECKSUM"),
-            OsSpecific(0x6ffffffd) => Some("GNU_VERDEF"),
-            OsSpecific(0x6ffffffe) => Some("GNU_VERNEED"),
-            OsSpecific(0x6fffffff) => Some("GNU_VERSYM"),
+            Other(0x6ffffff5) => Some("GNU_ATTRIBUTES"),
+            Other(0x6ffffff6) => Some("GNU_HASH"),
+            Other(0x6ffffff7) => Some("GNU_LIBLIST"),
+            Other(0x6ffffff8) => Some("CHECKSUM"),
+            Other(0x6ffffffd) => Some("GNU_VERDEF"),
+            Other(0x6ffffffe) => Some("GNU_VERNEED"),
+            Other(0x6fffffff) => Some("GNU_VERSYM"),
             _ => None,
         };
         match s {
@@ -57,11 +57,11 @@ impl std::fmt::Display for SegmentKindStr {
             Shlib => Some("SHLIB"),
             ProgramHeader => Some("PHDR"),
             Tls => Some("TLS"),
-            OsSpecific(0x6474e550) => Some("GNU_EH_FRAME"),
-            OsSpecific(0x6474e551) => Some("GNU_STACK"),
-            OsSpecific(0x6474e552) => Some("GNU_RELRO"),
-            OsSpecific(0x6474e553) => Some("GNU_PROPERTY"),
-            OsSpecific(0x6474e554) => Some("GNU_SFRAME"),
+            Other(0x6474e550) => Some("GNU_EH_FRAME"),
+            Other(0x6474e551) => Some("GNU_STACK"),
+            Other(0x6474e552) => Some("GNU_RELRO"),
+            Other(0x6474e553) => Some("GNU_PROPERTY"),
+            Other(0x6474e554) => Some("GNU_SFRAME"),
             _ => None,
         };
         let width = f.width().unwrap_or(0);
@@ -99,7 +99,7 @@ impl std::fmt::Display for SectionFlagsStr {
             match flag {
                 SectionFlags::WRITE => flags_str[0] = b'w',
                 SectionFlags::ALLOC => flags_str[1] = b'a',
-                SectionFlags::EXECINSTR => flags_str[2] = b'x',
+                SectionFlags::EXECUTABLE => flags_str[2] = b'x',
                 SectionFlags::MERGE => flags_str[3] = b'm',
                 SectionFlags::STRINGS => flags_str[4] = b's',
                 SectionFlags::INFO_LINK => flags_str[5] = b'i',

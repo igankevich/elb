@@ -12,6 +12,9 @@ use crate::Segment;
 use crate::SegmentFlags;
 use crate::SegmentKind;
 
+/// Allocator for in-file and in-memory space.
+///
+/// Allocates sections, segments and raw space.
 #[derive(Debug)]
 pub struct SpaceAllocator<'a> {
     file_events: Vec<Event>,
@@ -22,6 +25,7 @@ pub struct SpaceAllocator<'a> {
 }
 
 impl<'a> SpaceAllocator<'a> {
+    /// Create new allocator for the specified sections and segments.
     pub fn new(
         class: Class,
         page_size: u64,
@@ -128,12 +132,15 @@ impl<'a> SpaceAllocator<'a> {
         events
     }
 
-    pub fn allocate_section(&mut self, section: &mut Section) -> Result<(), Error> {
+    /// Allocate in-file and in-memory space for the specified `ALLOC` section.
+    ///
+    /// On success sets [`Section::offset`] and [`Section::virtual_address`].
+    pub fn allocate_section(mut self, section: &mut Section) -> Result<(), Error> {
         if section.kind == SectionKind::NoBits {
             // TODO handle NoBits
             unimplemented!("Allocating NOBITS sections is not implemented");
         }
-        assert_ne!(SectionKind::Null, section.kind);
+        assert!(section.flags.contains(SectionFlags::ALLOC) && section.kind != SectionKind::Null);
         let (offset_from_start, segment_index) = self
             .allocate_space(&self.file_events, section)
             .or_else(|| {
@@ -149,17 +156,14 @@ impl<'a> SpaceAllocator<'a> {
         let segment = &self.segments[segment_index];
         section.offset = segment.offset + offset_from_start;
         section.virtual_address = segment.virtual_address + offset_from_start;
-        //log::trace!(
-        //    "Allocating section, file offs {:#x}..{:#x}",
-        //    section.offset,
-        //    section.offset + section.size,
-        //    section.virtual_address,
-        //    section.virtual_address + section.size
-        //);
         Ok(())
     }
 
-    pub fn allocate_segment(&mut self, segment: &mut Segment) -> Result<(), Error> {
+    /// Allocate in-file and in-memory space for the specified `LOAD` segment.
+    ///
+    /// On success sets [`Segment::offset`], [`Segment::virtual_address`] and
+    /// [`Segment::physical_address`].
+    pub fn allocate_segment(mut self, segment: &mut Segment) -> Result<(), Error> {
         assert!(!matches!(
             segment.kind,
             SegmentKind::Loadable | SegmentKind::Null
@@ -310,21 +314,6 @@ impl<'a> SpaceAllocator<'a> {
             let padded_size = padding.checked_add(section.size)?;
             if offset - start >= padded_size {
                 let start = start.checked_add(padding)?;
-                /*
-                if *kind == LoadSegmentEnd {
-                    // Expand the segment if needed.
-                    // Only needs to be done for virtual addresses.
-                    let segment = &mut self.segments[*index];
-                    let old_end = segment.offset + segment.memory_size;
-                    let new_end = start + section.size;
-                    if new_end > old_end {
-                        let delta = new_end - old_end;
-                        segment.file_size += delta;
-                        segment.memory_size += delta;
-                    }
-                    let old_end = segment.virtual_address + segment.memory_size;
-                }
-                */
                 let offset_from_start = start - self.segments[current_load_segment].offset;
                 return Some((offset_from_start, current_load_segment));
             }
@@ -332,6 +321,9 @@ impl<'a> SpaceAllocator<'a> {
         None
     }
 
+    /// Allocate in-file space of the specified size and alignment in the file.
+    ///
+    /// Suitable for section header.
     pub fn allocate_file_space(&self, size: u64, align: u64) -> Option<u64> {
         let align = align.max(1);
         let mut counter = 1;
@@ -612,7 +604,7 @@ mod tests {
                 SegmentKind::Loadable,
                 SegmentFlags::WRITABLE,
             )];
-            let mut alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
+            let alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
             std::eprintln!("Map: {}", alloc);
             let mut section = section(1000, 1, SectionFlags::WRITE | SectionFlags::ALLOC);
             alloc.allocate_section(&mut section).unwrap();
@@ -627,7 +619,7 @@ mod tests {
                 SegmentKind::Loadable,
                 SegmentFlags::WRITABLE,
             )];
-            let mut alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
+            let alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
             std::eprintln!("Map: {}", alloc);
             let mut section = section(1000, 1, SectionFlags::WRITE | SectionFlags::ALLOC);
 
@@ -646,7 +638,7 @@ mod tests {
                 SegmentKind::Loadable,
                 SegmentFlags::WRITABLE,
             )];
-            let mut alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
+            let alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
             std::eprintln!("Map: {}", alloc);
             let mut section = section(1000, 1, SectionFlags::WRITE | SectionFlags::ALLOC);
             alloc.allocate_section(&mut section).unwrap();
@@ -664,7 +656,7 @@ mod tests {
                 SegmentKind::Loadable,
                 SegmentFlags::WRITABLE,
             )];
-            let mut alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
+            let alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
             std::eprintln!("Map: {}", alloc);
             let mut section = section(1000, 1, SectionFlags::WRITE | SectionFlags::ALLOC);
             alloc.allocate_section(&mut section).unwrap();
@@ -675,7 +667,7 @@ mod tests {
     fn file_section(offset: u64, size: u64, flags: SectionFlags) -> Section {
         Section {
             name_offset: 0,
-            kind: SectionKind::ProgramData,
+            kind: SectionKind::ProgramBits,
             flags,
             virtual_address: 0,
             offset,
@@ -703,7 +695,7 @@ mod tests {
     fn section(size: u64, align: u64, flags: SectionFlags) -> Section {
         Section {
             name_offset: 0,
-            kind: SectionKind::ProgramData,
+            kind: SectionKind::ProgramBits,
             flags,
             virtual_address: 0,
             offset: 0,

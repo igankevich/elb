@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 use crate::SectionKind;
+use crate::SegmentKind;
 
 /// ELF-specific error.
 #[derive(Error)]
@@ -53,6 +54,10 @@ pub enum Error {
     SegmentsOverlap(u64, u64, u64, u64),
     #[error("LOAD segments are not sorted by virtual address")]
     SegmentsNotSorted,
+    #[error("Segment {0:?} should preceed any LOAD segment")]
+    NotPreceedingLoadSegment(SegmentKind),
+    #[error("Only one {0:?} is allowed")]
+    MultipleSegments(SegmentKind),
     #[error("Overflow: {0}")]
     TooBig(&'static str),
     #[error("Word overflow: {0}")]
@@ -61,16 +66,12 @@ pub enum Error {
     TooBigSignedWord(i64),
     #[error("Overlap: {0}")]
     Overlap(&'static str),
-    // TODO
-    #[error("Failed to allocate file block")]
-    FileBlockAlloc,
-    // TODO
-    #[error("Failed to allocate memory block")]
-    MemoryBlockAlloc,
     #[error("Failed to allocate new section")]
     SectionAlloc,
     #[error("Failed to allocate new segment")]
     SegmentAlloc,
+    #[error("Failed to allocate in-file space")]
+    FileSpaceAlloc,
     #[error("Input/output error: {0}")]
     #[cfg(feature = "std")]
     Io(std::io::Error),

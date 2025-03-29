@@ -216,7 +216,7 @@ impl EntityIo for Section {
         byte_order: ByteOrder,
     ) -> Result<Self, Error> {
         let name_offset = reader.read_u32(byte_order)?;
-        let kind: SectionKind = reader.read_u32(byte_order)?.try_into()?;
+        let kind: SectionKind = reader.read_u32(byte_order)?.into();
         let flags = reader.read_word(class, byte_order)?;
         let virtual_address = reader.read_word(class, byte_order)?;
         let offset = reader.read_word(class, byte_order)?;
