@@ -17,6 +17,7 @@ use elfie::Elf;
 use elfie::ElfPatcher;
 use elfie::Machine;
 use elfie::StringTable;
+use elfie_dl::ld_so;
 use elfie_dl::DynamicLoader;
 use fs_err::File;
 use fs_err::OpenOptions;
@@ -306,8 +307,7 @@ fn check(common: CommonArgs, file: PathBuf) -> Result<(), Box<dyn std::error::Er
 }
 
 fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let mut loader = DynamicLoader::from_rootfs_dir(args.root)?;
-    loader.set_page_size(common.page_size);
+    let mut loader = DynamicLoader::new(common.page_size, ld_so::get_search_dirs(&args.root)?);
     if let Some(search_paths) = args.search_paths.as_ref() {
         loader.search_paths.extend(split_paths(search_paths));
     }

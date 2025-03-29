@@ -1,8 +1,5 @@
-use std::collections::VecDeque;
 use std::ffi::CString;
 use std::ffi::OsStr;
-use std::io::BufRead;
-use std::io::BufReader;
 use std::io::ErrorKind;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Component;
@@ -15,7 +12,6 @@ use elfie::Elf;
 use elfie::ElfPatcher;
 use elfie::Machine;
 use fs_err::File;
-use glob::glob;
 use log::log_enabled;
 use log::trace;
 use log::warn;
@@ -29,11 +25,12 @@ pub struct DynamicLoader {
 }
 
 impl DynamicLoader {
-    pub fn from_rootfs_dir<P: AsRef<Path>>(rootfs_dir: P) -> Result<Self, Error> {
-        Ok(Self {
-            search_paths: get_search_dirs(rootfs_dir)?,
-            page_size: 4096,
-        })
+    pub fn new(page_size: u64, search_paths: Vec<PathBuf>) -> Self {
+        assert!(page_size.is_power_of_two());
+        Self {
+            search_paths,
+            page_size,
+        }
     }
 
     pub fn set_page_size(&mut self, value: u64) {
@@ -141,85 +138,6 @@ impl DynamicLoader {
     }
 }
 
-pub fn get_search_dirs<P: AsRef<Path>>(rootfs_dir: P) -> Result<Vec<PathBuf>, std::io::Error> {
-    let rootfs_dir = rootfs_dir.as_ref();
-    let mut paths = Vec::new();
-    parse_ld_so_conf(rootfs_dir.join("etc/ld.so.conf"), rootfs_dir, &mut paths)?;
-    if paths.is_empty() {
-        paths.extend([
-            rootfs_dir.join("lib"),
-            rootfs_dir.join("usr/local/lib"),
-            rootfs_dir.join("usr/lib"),
-        ]);
-    }
-    if log_enabled!(Trace) {
-        for path in paths.iter() {
-            trace!("Found system library path {:?}", path);
-        }
-    }
-    Ok(paths)
-}
-
-fn parse_ld_so_conf(
-    path: PathBuf,
-    rootfs_dir: &Path,
-    paths: &mut Vec<PathBuf>,
-) -> Result<(), std::io::Error> {
-    let mut conf_files = Vec::new();
-    let mut queue = VecDeque::new();
-    queue.push_back(path);
-    while let Some(path) = queue.pop_front() {
-        let file = match File::open(&path) {
-            Ok(file) => file,
-            Err(ref e) if e.kind() == ErrorKind::NotFound => continue,
-            Err(e) => {
-                warn!("Failed to open {path:?}: {e}");
-                continue;
-            }
-        };
-        conf_files.push(path);
-        let reader = BufReader::new(file);
-        for line in reader.lines() {
-            let line = line?;
-            let line = match line.find('#') {
-                Some(i) => &line[..i],
-                None => &line[..],
-            }
-            .trim();
-            if line.is_empty() {
-                continue;
-            }
-            if line.starts_with("include") {
-                let Some(i) = line.find(char::is_whitespace) else {
-                    // Malformed "include" directive.
-                    continue;
-                };
-                let pattern = &line[i + 1..];
-                let Ok(more_paths) = glob(pattern) else {
-                    // Unparsable glob pattern.
-                    continue;
-                };
-                for path in more_paths {
-                    let Ok(path) = path else {
-                        continue;
-                    };
-                    let Ok(path) = path.strip_prefix("/") else {
-                        continue;
-                    };
-                    let path = rootfs_dir.join(path);
-                    if !conf_files.contains(&path) {
-                        queue.push_back(path);
-                    }
-                }
-            }
-            if let Some(path) = line.strip_prefix("/") {
-                paths.push(rootfs_dir.join(path));
-            }
-        }
-    }
-    Ok(())
-}
-
 fn interpolate(dir: &Path, file: &Path, elf: &Elf) -> PathBuf {
     use Component::*;
     let mut interpolated = PathBuf::new();
@@ -264,8 +182,10 @@ fn interpolate(dir: &Path, file: &Path, elf: &Elf) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ld_so;
     use fs_err::OpenOptions;
     use std::collections::HashSet;
+    use std::collections::VecDeque;
     use std::env::split_paths;
     use std::env::var_os;
     use std::ffi::CStr;
@@ -290,11 +210,11 @@ mod tests {
         }
         paths.sort_unstable();
         paths.dedup();
-        let mut loader = DynamicLoader::from_rootfs_dir("/").unwrap();
-        // TODO
-        loader
-            .search_paths
-            .push("/gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib".into());
+        let loader = DynamicLoader::new(4096, {
+            let mut dirs = ld_so::get_search_dirs("/").unwrap();
+            dirs.extend(ld_so::get_hard_coded_search_dirs(None).unwrap());
+            dirs
+        });
         let mut visited = HashSet::new();
         for dir in paths.iter() {
             if !dir.exists() || !dir.is_dir() {
