@@ -5,8 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default =  ["gnu"]
-gnu = ["dep:glob"]
+default =  ["glibc", "musl"]
+glibc = ["dep:glob"]
+musl = []
 
 [dependencies]
 elfie = { path = "..", version = "0.1.0" }
@@ -23,4 +24,4 @@ walkdir = "2.5.0"
 env_logger = "0.11.6"
 
 [lints]
-#workspace = true
+workspace = true

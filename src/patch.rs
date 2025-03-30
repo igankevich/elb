@@ -270,42 +270,12 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
 
     /// Read dynamic table.
     pub fn read_dynamic_table(&mut self) -> Result<Option<DynamicTable>, Error> {
-        let Some(i) = self
-            .elf
-            .sections
-            .iter()
-            .position(|section| section.kind == SectionKind::Dynamic)
-        else {
-            return Ok(None);
-        };
-        let section = &self.elf.sections[i];
-        self.file.seek(section.offset)?;
-        let table = DynamicTable::read(
-            &mut self.file,
-            self.elf.header.class,
-            self.elf.header.byte_order,
-            section.size,
-        )?;
-        Ok(Some(table))
+        self.elf.read_dynamic_table(&mut self.file)
     }
 
     /// Read dynamic string table.
-    pub fn read_dynamic_string_table(&mut self) -> Result<StringTable, Error> {
-        let names = self
-            .elf
-            .read_section_names(&mut self.file)?
-            .unwrap_or_default();
-        let table = match self.elf.sections.iter().position(|section| {
-            Some(DYNSTR_SECTION) == names.get_string(section.name_offset as usize)
-        }) {
-            Some(i) => self.elf.sections[i].read_content(
-                &mut self.file,
-                self.elf.header.class,
-                self.elf.header.byte_order,
-            )?,
-            None => Default::default(),
-        };
-        Ok(table)
+    pub fn read_dynamic_string_table(&mut self) -> Result<Option<StringTable>, Error> {
+        self.elf.read_dynamic_string_table(&mut self.file)
     }
 
     /// Set the value under the specified dynamic tag in the dynamic table.

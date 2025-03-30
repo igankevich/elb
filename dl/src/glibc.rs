@@ -14,17 +14,18 @@ use log::trace;
 use log::warn;
 use log::Level::Trace;
 
+/// Get default library search directories plus the paths from `<rootfs_dir>/etc/ld.so.conf`.
+///
+/// Default search directories: `/lib:/usr/local/lib:/usr/lib`.
 pub fn get_search_dirs<P: AsRef<Path>>(rootfs_dir: P) -> Result<Vec<PathBuf>, std::io::Error> {
     let rootfs_dir = rootfs_dir.as_ref();
     let mut paths = Vec::new();
+    paths.extend([
+        rootfs_dir.join("lib"),
+        rootfs_dir.join("usr/local/lib"),
+        rootfs_dir.join("usr/lib"),
+    ]);
     parse_ld_so_conf(rootfs_dir.join("etc/ld.so.conf"), rootfs_dir, &mut paths)?;
-    if paths.is_empty() {
-        paths.extend([
-            rootfs_dir.join("lib"),
-            rootfs_dir.join("usr/local/lib"),
-            rootfs_dir.join("usr/lib"),
-        ]);
-    }
     if log_enabled!(Trace) {
         for path in paths.iter() {
             trace!("Found system library path {:?}", path);
@@ -86,13 +87,19 @@ fn parse_ld_so_conf(
                 }
             }
             if let Some(path) = line.strip_prefix("/") {
-                paths.push(rootfs_dir.join(path));
+                let path = rootfs_dir.join(path);
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
             }
         }
     }
     Ok(())
 }
 
+/// Get library search directories from via `ld.so --list-diagnostics`.
+///
+/// Useful for Nix and Guix.
 pub fn get_hard_coded_search_dirs(
     ld_so_exe: Option<Command>,
 ) -> Result<Vec<PathBuf>, std::io::Error> {

@@ -19,7 +19,8 @@ use elfie::Elf;
 use elfie::ElfPatcher;
 use elfie::Machine;
 use elfie::StringTable;
-use elfie_dl::gnu;
+use elfie_dl::glibc;
+use elfie_dl::musl;
 use elfie_dl::DynamicLoader;
 use fs_err::File;
 use fs_err::OpenOptions;
@@ -81,9 +82,15 @@ struct DepsArgs {
     #[clap(short = 'r', long = "root", value_name = "DIR", default_value = "/")]
     root: PathBuf,
 
-    /// Override library search paths.
-    #[clap(short = 'L', long = "search-paths", value_name = "DIR1:DIR2:...")]
-    search_paths: Option<PathBuf>,
+    /// Which architecture to use.
+    ///
+    /// This value is used to interpolate `$PLATFORM` in RPATH/RUNPATH.
+    #[clap(long = "arch", value_name = "ARCH")]
+    arch: Option<String>,
+
+    /// Override library search directories.
+    #[clap(short = 'L', long = "search-dirs", value_name = "DIR1:DIR2:...")]
+    search_dirs: Option<PathBuf>,
 
     /// Tree visual style.
     #[clap(
@@ -102,6 +109,15 @@ struct DepsArgs {
         default_value = "tree"
     )]
     format: DepsFormat,
+
+    /// Which libc implementation to emulate.
+    #[clap(
+        short = 'l',
+        long = "libc",
+        value_name = "LIBC",
+        default_value = "glibc"
+    )]
+    libc: Libc,
 
     /// ELF file.
     #[clap(value_name = "ELF file")]
@@ -318,14 +334,25 @@ fn check(common: CommonArgs, file: PathBuf) -> Result<(), Box<dyn std::error::Er
 }
 
 fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let search_paths = {
-        let mut search_paths = gnu::get_search_dirs(&args.root)?;
-        if let Some(path) = args.search_paths.as_ref() {
-            search_paths.extend(split_paths(path));
+    let search_dirs = {
+        let mut search_dirs = Vec::new();
+        match args.libc {
+            Libc::Glibc => search_dirs.extend(glibc::get_search_dirs(&args.root)?),
+            Libc::Musl => {
+                let arch = args.arch.as_deref().unwrap_or(std::env::consts::ARCH);
+                search_dirs.extend(musl::get_search_dirs(&args.root, arch)?);
+            }
         }
-        search_paths
+        if let Some(path) = args.search_dirs.as_ref() {
+            search_dirs.extend(split_paths(path));
+        }
+        search_dirs
     };
-    let loader = DynamicLoader::new(common.page_size, search_paths);
+    let loader = DynamicLoader::options()
+        .page_size(common.page_size)
+        .search_dirs(search_dirs)
+        .platform(args.arch.map(|x| x.into()))
+        .new_loader();
     let mut table: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
     let mut queue = VecDeque::new();
     for path in loader.resolve_dependencies(&args.file)?.1.into_iter() {
@@ -412,6 +439,12 @@ fn print_tree<W: Write>(
         stack.pop_back();
     }
     Ok(())
+}
+
+#[derive(clap::ValueEnum, Clone, Copy)]
+enum Libc {
+    Glibc,
+    Musl,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy)]

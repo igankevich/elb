@@ -1,5 +1,6 @@
 use std::ffi::CString;
 use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::io::ErrorKind;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Component;
@@ -9,7 +10,6 @@ use std::path::PathBuf;
 use elfie::Class;
 use elfie::DynamicTag;
 use elfie::Elf;
-use elfie::ElfPatcher;
 use elfie::Machine;
 use fs_err::File;
 use log::log_enabled;
@@ -19,20 +19,100 @@ use log::Level::Trace;
 
 use crate::Error;
 
+/// Dynamic loader options.
+pub struct LoaderOptions {
+    search_dirs: Vec<PathBuf>,
+    lib: Option<OsString>,
+    platform: Option<OsString>,
+    page_size: u64,
+}
+
+impl LoaderOptions {
+    /// Default options.
+    pub fn new() -> Self {
+        Self {
+            search_dirs: Default::default(),
+            lib: None,
+            platform: None,
+            page_size: 4096,
+        }
+    }
+
+    /// Directories where to look for libraries.
+    ///
+    /// See [`glibc`](crate::glibc) and [`musl`](crate::musl) modules.
+    pub fn search_dirs(mut self, search_dirs: Vec<PathBuf>) -> Self {
+        self.search_dirs = search_dirs;
+        self
+    }
+
+    /// Set page size.
+    ///
+    /// Panics if the size is not a power of two.
+    pub fn page_size(mut self, page_size: u64) -> Self {
+        assert!(page_size.is_power_of_two());
+        self.page_size = page_size;
+        self
+    }
+
+    /// Set library directory name.
+    ///
+    /// This value is used to substitute `$LIB` variable in `RPATH` and `RUNPATH`.
+    ///
+    /// When not set `lib` is used for 32-bit arhitectures and `lib64` is used for 64-bit
+    /// architectures.
+    pub fn lib(mut self, lib: Option<OsString>) -> Self {
+        self.lib = lib;
+        self
+    }
+
+    /// Set platform directory name.
+    ///
+    /// This value is used to substitute `$PLATFORM` variable in `RPATH` and `RUNPATH`.
+    ///
+    /// When not set the platform is interpolated based on [`Machine`](elfie::Machine)
+    /// (best-effort).
+    pub fn platform(mut self, platform: Option<OsString>) -> Self {
+        self.platform = platform;
+        self
+    }
+
+    /// Create new dynamic loader using the current options.
+    pub fn new_loader(self) -> DynamicLoader {
+        DynamicLoader {
+            search_dirs: self.search_dirs,
+            lib: self.lib,
+            platform: self.platform,
+            page_size: self.page_size,
+        }
+    }
+}
+
+impl Default for LoaderOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Dynamic loader.
+///
+/// Resolved ELF dependencies without loading and executing the files.
 pub struct DynamicLoader {
-    search_paths: Vec<PathBuf>,
+    search_dirs: Vec<PathBuf>,
+    lib: Option<OsString>,
+    platform: Option<OsString>,
     page_size: u64,
 }
 
 impl DynamicLoader {
-    pub fn new(page_size: u64, search_paths: Vec<PathBuf>) -> Self {
-        assert!(page_size.is_power_of_two());
-        Self {
-            search_paths,
-            page_size,
-        }
+    /// Get default loader options.
+    pub fn options() -> LoaderOptions {
+        LoaderOptions::new()
     }
 
+    /// Find immediate dependencies of the ELF `file`.
+    ///
+    /// To find all dependencies, recursively pass each returned path to this method again.
     pub fn resolve_dependencies<P: AsRef<Path>>(
         &self,
         file: P,
@@ -42,16 +122,17 @@ impl DynamicLoader {
         let dependent_file = file.as_ref();
         let mut file = File::open(dependent_file)?;
         let elf = Elf::read(&mut file, self.page_size)?;
-        let mut patcher = ElfPatcher::new(elf, file);
-        let dynstr_table = patcher.read_dynamic_string_table()?;
-        let Some(dynamic_table) = patcher.read_dynamic_table()? else {
-            let (elf, _file) = patcher.into_inner();
+        let names = elf.read_section_names(&mut file)?.unwrap_or_default();
+        let dynstr_table = elf
+            .read_dynamic_string_table(&mut file)?
+            .unwrap_or_default();
+        let Some(dynamic_table) = elf.read_dynamic_table(&mut file)? else {
             return Ok((elf, Default::default()));
         };
-        let interpreter = patcher
-            .read_interpreter()?
+        let interpreter = elf
+            .read_interpreter(&names, &mut file)?
             .map(|c_str| PathBuf::from(OsStr::from_bytes(c_str.to_bytes())));
-        let mut search_paths = Vec::new();
+        let mut search_dirs = Vec::new();
         for key in [DynamicTag::Runpath, DynamicTag::Rpath] {
             for dir in dynamic_table
                 .iter()
@@ -64,7 +145,13 @@ impl DynamicLoader {
                 })
                 .flat_map(|rpath| std::env::split_paths(OsStr::from_bytes(rpath.to_bytes())))
             {
-                let dir = interpolate(&dir, dependent_file, patcher.elf());
+                let dir = interpolate(
+                    &dir,
+                    dependent_file,
+                    &elf,
+                    self.lib.as_deref(),
+                    self.platform.as_deref(),
+                );
                 if log_enabled!(Trace) {
                     let what = match key {
                         DynamicTag::Rpath => "rpath",
@@ -73,7 +160,7 @@ impl DynamicLoader {
                     };
                     trace!("Found {} {:?} in {:?}", what, dir, dependent_file);
                 }
-                search_paths.push(dir);
+                search_dirs.push(dir);
             }
         }
         if let Some(interpreter) = interpreter.as_ref() {
@@ -88,7 +175,7 @@ impl DynamicLoader {
                 }
             }
         }
-        search_paths.extend(self.search_paths.clone());
+        search_dirs.extend(self.search_dirs.clone());
         'outer: for (tag, value) in dynamic_table.iter() {
             if *tag != DynamicTag::Needed {
                 continue;
@@ -97,7 +184,7 @@ impl DynamicLoader {
                 continue;
             };
             trace!("{:?} depends on {:?}", dependent_file, dep_name);
-            for dir in search_paths.iter() {
+            for dir in search_dirs.iter() {
                 let path = dir.join(OsStr::from_bytes(dep_name.to_bytes()));
                 let mut file = match File::open(&path) {
                     Ok(file) => file,
@@ -112,7 +199,6 @@ impl DynamicLoader {
                     Err(elfie::Error::NotElf) => continue,
                     Err(e) => return Err(e.into()),
                 };
-                let elf = patcher.elf();
                 if dep.header.byte_order == elf.header.byte_order
                     && dep.header.class == elf.header.class
                     && dep.header.machine == elf.header.machine
@@ -124,19 +210,24 @@ impl DynamicLoader {
                     continue 'outer;
                 }
             }
-            trace!("Search paths {:#?}", search_paths);
+            trace!("Search paths {:#?}", search_dirs);
             trace!("Resolved file names {:#?}", file_names);
             return Err(Error::FailedToResolve(
                 dep_name.into(),
                 dependent_file.to_path_buf(),
             ));
         }
-        let (elf, _file) = patcher.into_inner();
         Ok((elf, dependencies))
     }
 }
 
-fn interpolate(dir: &Path, file: &Path, elf: &Elf) -> PathBuf {
+fn interpolate(
+    dir: &Path,
+    file: &Path,
+    elf: &Elf,
+    lib: Option<&OsStr>,
+    platform: Option<&OsStr>,
+) -> PathBuf {
     use Component::*;
     let mut interpolated = PathBuf::new();
     for comp in dir.components() {
@@ -149,27 +240,33 @@ fn interpolate(dir: &Path, file: &Path, elf: &Elf) -> PathBuf {
                 }
             }
             Normal(comp) if comp == "$LIB" || comp == "${LIB}" => {
-                let lib = match elf.header.class {
-                    Class::Elf32 => "lib",
-                    Class::Elf64 => "lib64",
+                let lib = match lib {
+                    Some(lib) => lib,
+                    None => match elf.header.class {
+                        Class::Elf32 => OsStr::new("lib"),
+                        Class::Elf64 => OsStr::new("lib64"),
+                    },
                 };
                 interpolated.push(lib);
             }
-            // TODO more platforms
             Normal(comp) if comp == "$PLATFORM" || comp == "${PLATFORM}" => {
-                let platform = match elf.header.machine {
-                    Machine::X86_64 => "x86_64",
-                    _ => {
-                        warn!(
-                            "Failed to interpolate $PLATFORM, machine is {:?} ({})",
-                            elf.header.machine,
-                            elf.header.machine.as_u16()
-                        );
-                        interpolated.push(comp);
-                        continue;
-                    }
-                };
-                interpolated.push(platform);
+                if let Some(platform) = platform {
+                    interpolated.push(platform);
+                } else {
+                    let platform = match elf.header.machine {
+                        Machine::X86_64 => "x86_64",
+                        _ => {
+                            warn!(
+                                "Failed to interpolate $PLATFORM, machine is {:?} ({})",
+                                elf.header.machine,
+                                elf.header.machine.as_u16()
+                            );
+                            interpolated.push(comp);
+                            continue;
+                        }
+                    };
+                    interpolated.push(platform);
+                }
             }
             comp => interpolated.push(comp),
         }
@@ -180,7 +277,8 @@ fn interpolate(dir: &Path, file: &Path, elf: &Elf) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gnu;
+    use crate::glibc;
+    use elfie::ElfPatcher;
     use fs_err::OpenOptions;
     use std::collections::HashSet;
     use std::collections::VecDeque;
@@ -208,12 +306,15 @@ mod tests {
         }
         paths.sort_unstable();
         paths.dedup();
-        let loader = DynamicLoader::new(4096, {
-            let mut dirs = Vec::new();
-            dirs.extend(gnu::get_hard_coded_search_dirs(None).unwrap());
-            dirs.extend(gnu::get_search_dirs("/").unwrap());
-            dirs
-        });
+        let loader = DynamicLoader::options()
+            .page_size(4096)
+            .search_dirs({
+                let mut dirs = Vec::new();
+                dirs.extend(glibc::get_hard_coded_search_dirs(None).unwrap());
+                dirs.extend(glibc::get_search_dirs("/").unwrap());
+                dirs
+            })
+            .new_loader();
         let mut visited = HashSet::new();
         for dir in paths.iter() {
             if !dir.exists() || !dir.is_dir() {

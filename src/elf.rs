@@ -1,8 +1,11 @@
+use alloc::ffi::CString;
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
+use crate::constants::*;
 use crate::BlockRead;
 use crate::BlockWrite;
+use crate::DynamicTable;
 use crate::ElfRead;
 use crate::ElfSeek;
 use crate::ElfWrite;
@@ -10,6 +13,7 @@ use crate::Error;
 use crate::Header;
 use crate::ProgramHeader;
 use crate::SectionHeader;
+use crate::SectionKind;
 use crate::StringTable;
 
 /// ELF file.
@@ -107,6 +111,60 @@ impl Elf {
             self.header.class,
             self.header.byte_order,
         )?))
+    }
+
+    /// Read dynamic table.
+    pub fn read_dynamic_table<F: ElfRead + ElfSeek>(
+        &self,
+        file: &mut F,
+    ) -> Result<Option<DynamicTable>, Error> {
+        let Some(i) = self
+            .sections
+            .iter()
+            .position(|section| section.kind == SectionKind::Dynamic)
+        else {
+            return Ok(None);
+        };
+        let section = &self.sections[i];
+        file.seek(section.offset)?;
+        let table = DynamicTable::read(
+            file,
+            self.header.class,
+            self.header.byte_order,
+            section.size,
+        )?;
+        Ok(Some(table))
+    }
+
+    /// Read dynamic string table.
+    pub fn read_dynamic_string_table<F: ElfRead + ElfSeek>(
+        &self,
+        file: &mut F,
+    ) -> Result<Option<StringTable>, Error> {
+        let Some(names) = self.read_section_names(file)? else {
+            return Ok(None);
+        };
+        let table = match self.sections.iter().position(|section| {
+            Some(DYNSTR_SECTION) == names.get_string(section.name_offset as usize)
+        }) {
+            Some(i) => {
+                self.sections[i].read_content(file, self.header.class, self.header.byte_order)?
+            }
+            None => return Ok(None),
+        };
+        Ok(Some(table))
+    }
+
+    /// Read the interpreter.
+    pub fn read_interpreter<F: ElfRead + ElfSeek>(
+        &self,
+        names: &StringTable,
+        file: &mut F,
+    ) -> Result<Option<CString>, Error> {
+        let Some(interp) = self.read_section(INTERP_SECTION, names, file)? else {
+            return Ok(None);
+        };
+        Ok(Some(CString::from_vec_with_nul(interp)?))
     }
 
     /// Read the contents of the specified by name.

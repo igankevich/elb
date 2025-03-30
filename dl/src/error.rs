@@ -1,7 +1,9 @@
 use std::ffi::CString;
 use std::path::PathBuf;
 
+/// Dynamic loader error.
 #[derive(thiserror::Error, Debug)]
+#[allow(missing_docs)]
 pub enum Error {
     #[error("ELF error: {0}")]
     Elf(#[from] elfie::Error),
