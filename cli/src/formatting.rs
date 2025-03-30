@@ -2,6 +2,9 @@ use elb::SectionFlags;
 use elb::SectionKind;
 use elb::SegmentFlags;
 use elb::SegmentKind;
+use elb::SymbolBinding;
+use elb::SymbolKind;
+use elb::SymbolVisibility;
 
 pub struct SectionKindStr(pub SectionKind);
 
@@ -113,5 +116,62 @@ impl std::fmt::Display for SectionFlagsStr {
         }
         let s = std::str::from_utf8(&flags_str[..]).expect("The string is UTF-8");
         write!(f, "{}", s)
+    }
+}
+
+pub struct SymbolVisibilityStr(pub SymbolVisibility);
+
+impl std::fmt::Display for SymbolVisibilityStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use SymbolVisibility::*;
+        let s = match self.0 {
+            Default => "default",
+            Internal => "internal",
+            Hidden => "hidden",
+            Protected => "protected",
+        };
+        let width = f.width().unwrap_or(0);
+        write!(f, "{:width$}", s, width = width)
+    }
+}
+
+pub struct SymbolBindingStr(pub SymbolBinding);
+
+impl std::fmt::Display for SymbolBindingStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use SymbolBinding::*;
+        let s = match self.0 {
+            Local => Some("local"),
+            Global => Some("global"),
+            Weak => Some("weak"),
+            _ => None,
+        };
+        let width = f.width().unwrap_or(0);
+        match s {
+            Some(s) => write!(f, "{:width$}", s, width = width),
+            None => write!(f, "{:#width$x}", self.0.as_u8(), width = width),
+        }
+    }
+}
+
+pub struct SymbolKindStr(pub SymbolKind);
+
+impl std::fmt::Display for SymbolKindStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let s = match self.0 {
+            SymbolKind::None => Some(""),
+            SymbolKind::Object => Some("object"),
+            SymbolKind::Function => Some("function"),
+            SymbolKind::Section => Some("section"),
+            SymbolKind::File => Some("file"),
+            SymbolKind::Common => Some("common"),
+            SymbolKind::Tls => Some("tls"),
+            _ => None,
+        };
+        let width = f.width().unwrap_or(0);
+        match s {
+            Some(s) => write!(f, "{:width$}", s, width = width),
+            None => write!(f, "{:#width$x}", self.0.as_u8(), width = width),
+        }
     }
 }

@@ -384,6 +384,11 @@ define_infallible_enum! {
 }
 
 impl SymbolBinding {
+    /// Cast to `u8`.
+    pub const fn as_u8(self) -> u8 {
+        self.as_number()
+    }
+
     /// Convert from symbol's `info` field.
     pub fn from_info(info: u8) -> Self {
         Self::from(info >> 4)
@@ -398,7 +403,7 @@ impl SymbolBinding {
 define_infallible_enum! {
     "Symbol type.",
     SymbolKind, u8,
-    (NoType, 0, "Unspecified."),
+    (None, 0, "Unspecified."),
     (Object, 1, "Data object."),
     (Function, 2, "Code object."),
     (Section, 3, "Associated with a section."),
@@ -408,6 +413,11 @@ define_infallible_enum! {
 }
 
 impl SymbolKind {
+    /// Cast to `u8`.
+    pub const fn as_u8(self) -> u8 {
+        self.as_number()
+    }
+
     /// Convert from symbol's `info` field.
     pub fn from_info(info: u8) -> Self {
         Self::from(info & 0xf)

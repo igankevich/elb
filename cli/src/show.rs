@@ -1,10 +1,17 @@
 use colored::Colorize;
+use std::io::BufWriter;
+use std::io::Stdout;
+use std::io::Write;
 use std::path::PathBuf;
 
 use elb::ArmFlags;
+use elb::BlockRead;
 use elb::Elf;
+use elb::ElfSeek;
 use elb::Machine;
+use elb::SectionKind;
 use elb::StringTable;
+use elb::SymbolTable;
 use fs_err::File;
 
 use crate::CommonArgs;
@@ -12,6 +19,9 @@ use crate::SectionFlagsStr;
 use crate::SectionKindStr;
 use crate::SegmentFlagsStr;
 use crate::SegmentKindStr;
+use crate::SymbolBindingStr;
+use crate::SymbolKindStr;
+use crate::SymbolVisibilityStr;
 
 #[derive(clap::Args)]
 pub struct ShowArgs {
@@ -41,6 +51,10 @@ pub fn show(common: CommonArgs, args: ShowArgs) -> Result<(), Box<dyn std::error
             let mut printer = Printer::new(false);
             show_segments(&elf, &section_names, &mut printer)?;
         }
+        What::Symbols => {
+            let mut printer = Printer::new(false);
+            show_symbols(&elf, &section_names, &mut file, &mut printer)?;
+        }
         What::All => {
             let mut printer = Printer::new(true);
             printer.title("Header");
@@ -49,6 +63,7 @@ pub fn show(common: CommonArgs, args: ShowArgs) -> Result<(), Box<dyn std::error
             show_sections(&elf, &section_names, &mut printer)?;
             printer.title("Segments");
             show_segments(&elf, &section_names, &mut printer)?;
+            show_symbols(&elf, &section_names, &mut file, &mut printer)?;
         }
     }
     elf.check()?;
@@ -183,9 +198,71 @@ fn show_segments(
     Ok(())
 }
 
+fn show_symbols(
+    elf: &Elf,
+    names: &StringTable,
+    file: &mut File,
+    printer: &mut Printer,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for section in elf.sections.iter() {
+        if !matches!(
+            section.kind,
+            SectionKind::SymbolTable | SectionKind::DynamicSymbolTable
+        ) {
+            continue;
+        }
+        let name = names
+            .get_string(section.name_offset as usize)
+            .unwrap_or_default();
+        file.seek(section.offset)?;
+        let symbol_table =
+            SymbolTable::read(file, elf.header.class, elf.header.byte_order, section.size)?;
+        if symbol_table.is_empty() {
+            continue;
+        }
+        let strings: StringTable = {
+            let Some(section) = elf.sections.get(section.link as usize) else {
+                continue;
+            };
+            section.read_content(file, elf.header.class, elf.header.byte_order)?
+        };
+        printer.title(&format!("Symbols from {:?}", name));
+        if !elf.sections.is_empty() {
+            printer.row(format_args!(
+                "{:20}  {:>10}  {:7}  {:8}  {:9}  {:20}  Name",
+                "Address", "Size", "Binding", "Type", "Visibility", "Section"
+            ));
+        }
+        for symbol in symbol_table.iter() {
+            let name = strings
+                .get_string(symbol.name_offset as usize)
+                .unwrap_or_default();
+            let name = std::str::from_utf8(name.to_bytes()).unwrap_or_default();
+            let section_name = elf
+                .sections
+                .get(symbol.section_index as usize)
+                .and_then(|section| names.get_string(section.name_offset as usize))
+                .unwrap_or_default();
+            let section_name = std::str::from_utf8(section_name.to_bytes()).unwrap_or_default();
+            printer.row(format_args!(
+                "{:#020x}  {:10}  {:7}  {:8}  {:9}  {:20}  {}",
+                symbol.address,
+                symbol.size,
+                SymbolBindingStr(symbol.binding),
+                SymbolKindStr(symbol.kind),
+                SymbolVisibilityStr(symbol.visibility),
+                section_name,
+                name,
+            ));
+        }
+    }
+    Ok(())
+}
+
 struct Printer {
     first_title: bool,
     indent: bool,
+    writer: BufWriter<Stdout>,
 }
 
 impl Printer {
@@ -193,6 +270,7 @@ impl Printer {
         Self {
             first_title: true,
             indent,
+            writer: BufWriter::new(std::io::stdout()),
         }
     }
 
@@ -203,17 +281,17 @@ impl Printer {
             self.first_title = false;
             ""
         };
-        println!("{}{}", newline, title.bold().underline());
+        let _ = writeln!(self.writer, "{}{}", newline, title.bold().underline());
     }
 
     fn kv<V: std::fmt::Display>(&mut self, key: &str, value: V) {
         let indent = if self.indent { "  " } else { "" };
-        println!("{}{}: {}", indent, key.bold().blue(), value);
+        let _ = writeln!(self.writer, "{}{}: {}", indent, key.bold().blue(), value);
     }
 
     fn row<V: std::fmt::Display>(&mut self, value: V) {
         let indent = if self.indent { "  " } else { "" };
-        println!("{}{}", indent, value);
+        let _ = writeln!(self.writer, "{}{}", indent, value);
     }
 }
 
@@ -225,4 +303,5 @@ enum What {
     Header,
     Sections,
     Segments,
+    Symbols,
 }
