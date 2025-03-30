@@ -47,10 +47,13 @@ impl<'a> SpaceAllocator<'a> {
     fn file_events(sections: &[Section], segments: &[Segment]) -> Vec<Event> {
         let mut events = Vec::with_capacity(2 * (sections.len() + segments.len()));
         for (i, section) in sections.iter().enumerate() {
-            if matches!(section.kind, SectionKind::NoBits | SectionKind::Null) {
+            if matches!(section.kind, SectionKind::Null) {
                 continue;
             }
             let range = section.file_offset_range();
+            if range.is_empty() {
+                continue;
+            }
             events.push(Event {
                 offset: range.start,
                 kind: SectionStart,
@@ -67,10 +70,15 @@ impl<'a> SpaceAllocator<'a> {
             });
         }
         for (i, segment) in segments.iter().enumerate() {
+            if matches!(segment.kind, SegmentKind::Null) {
+                continue;
+            }
             let range = segment.file_offset_range();
             events.push(Event {
                 offset: range.start,
-                kind: if segment.kind == SegmentKind::Loadable {
+                kind: if range.is_empty() {
+                    EmptySegmentStart
+                } else if segment.kind == SegmentKind::Loadable {
                     LoadSegmentStart
                 } else {
                     SegmentStart
@@ -79,7 +87,9 @@ impl<'a> SpaceAllocator<'a> {
             });
             events.push(Event {
                 offset: range.end,
-                kind: if segment.kind == SegmentKind::Loadable {
+                kind: if range.is_empty() {
+                    EmptySegmentEnd
+                } else if segment.kind == SegmentKind::Loadable {
                     LoadSegmentEnd
                 } else {
                     SegmentEnd
@@ -197,7 +207,7 @@ impl<'a> SpaceAllocator<'a> {
             .map(|event| {
                 debug_assert!(matches!(
                     event.kind,
-                    LoadSegmentEnd | SegmentEnd | SectionEnd
+                    LoadSegmentEnd | SegmentEnd | SectionEnd | EmptySegmentEnd
                 ));
                 event.offset
             })
@@ -209,7 +219,7 @@ impl<'a> SpaceAllocator<'a> {
             .map(|event| {
                 debug_assert!(matches!(
                     event.kind,
-                    LoadSegmentEnd | SegmentEnd | SectionEnd
+                    LoadSegmentEnd | SegmentEnd | SectionEnd | EmptySegmentEnd
                 ));
                 event.offset
             })
@@ -259,9 +269,11 @@ impl<'a> SpaceAllocator<'a> {
                 current_load_segment = Some(0);
                 segment_counter += 1;
             }
-            Some(SegmentStart) => segment_counter += 1,
+            Some(SegmentStart | EmptySegmentStart) => segment_counter += 1,
             // `*Start` events are sorted before `*End` events.
-            _ => unreachable!(),
+            _ => {
+                unreachable!("{events:#?}")
+            }
         }
         // Try to find free space in an existing segment to squeeze the new section in.
         for i in 1..events.len() {
@@ -280,10 +292,10 @@ impl<'a> SpaceAllocator<'a> {
                     }
                     segment_counter += 1;
                 }
-                SegmentStart => segment_counter += 1,
+                SegmentStart | EmptySegmentStart => segment_counter += 1,
                 SectionStart => section_counter += 1,
                 NoBitsSectionEnd | SectionEnd => section_counter -= 1,
-                SegmentEnd => segment_counter -= 1,
+                SegmentEnd | EmptySegmentEnd => segment_counter -= 1,
                 LoadSegmentEnd => segment_counter -= 1,
             }
             let Some(current_load_segment) = current_load_segment else {
@@ -331,8 +343,10 @@ impl<'a> SpaceAllocator<'a> {
             let Event { offset, kind, .. } = &self.file_events[i];
             let prev_counter = counter;
             match kind {
-                LoadSegmentStart | SegmentStart | SectionStart => counter += 1,
-                LoadSegmentEnd | SegmentEnd | SectionEnd | NoBitsSectionEnd => counter -= 1,
+                LoadSegmentStart | SegmentStart | SectionStart | EmptySegmentStart => counter += 1,
+                LoadSegmentEnd | SegmentEnd | SectionEnd | NoBitsSectionEnd | EmptySegmentEnd => {
+                    counter -= 1
+                }
             }
             if !(prev_counter == 0 && counter == 1) {
                 // We're not between top-level sections/segments.
@@ -376,6 +390,8 @@ impl core::fmt::Display for SpaceAllocator<'_> {
                 SegmentEnd => "> ",
                 SectionStart => "( ",
                 NoBitsSectionEnd | SectionEnd => ") ",
+                EmptySegmentStart => "{ ",
+                EmptySegmentEnd => "} ",
             };
             let n = offset - prev_offset;
             if n != 0 {
@@ -403,38 +419,9 @@ impl PartialOrd for Event {
 
 impl Ord for Event {
     fn cmp(&self, other: &Self) -> Ordering {
-        use Ordering::*;
-        self.offset.cmp(&other.offset).then_with(|| {
-            let kind_ordering = self.kind.cmp(&other.kind);
-            let index_ordering = self.index.cmp(&other.index);
-            if kind_ordering == Equal {
-                return index_ordering;
-            }
-            if index_ordering == Equal {
-                // Order zero-length sections and segments.
-                return match (self.kind, other.kind) {
-                    (SectionStart, SectionEnd) => kind_ordering,
-                    (SectionEnd, SectionStart) => kind_ordering,
-                    (SegmentStart, SegmentEnd) => kind_ordering,
-                    (SegmentEnd, SegmentStart) => kind_ordering,
-                    (LoadSegmentStart, LoadSegmentEnd) => kind_ordering,
-                    (LoadSegmentEnd, LoadSegmentStart) => kind_ordering,
-                    // Indices are equal, but objects are not the same,
-                    // i.e. a section index happens to be equal to a segment index.
-                    _ => kind_ordering.reverse(),
-                };
-            }
-            // Order adjacent sections and segments (inverse order).
-            match (self.kind, other.kind) {
-                (SectionStart, SectionEnd) => kind_ordering.reverse(),
-                (SectionEnd, SectionStart) => kind_ordering.reverse(),
-                (SegmentStart, SegmentEnd) => kind_ordering.reverse(),
-                (SegmentEnd, SegmentStart) => kind_ordering.reverse(),
-                (LoadSegmentStart, LoadSegmentEnd) => kind_ordering.reverse(),
-                (LoadSegmentEnd, LoadSegmentStart) => kind_ordering.reverse(),
-                _ => kind_ordering.reverse(),
-            }
-        })
+        self.offset
+            .cmp(&other.offset)
+            .then_with(|| self.kind.cmp(&other.kind).reverse())
     }
 }
 
@@ -447,11 +434,14 @@ enum EventKind {
     LoadSegmentStart = 0,
     SegmentStart = 1,
     SectionStart = 2,
-    SectionEnd = 3,
+    // Empty segment's event order is reversed.
+    EmptySegmentEnd = 3,
+    EmptySegmentStart = 4,
+    SectionEnd = 5,
     // NOBITS + ALLOC sections can only be at the end of the LOAD segment.
-    NoBitsSectionEnd = 4,
-    SegmentEnd = 5,
-    LoadSegmentEnd = 6,
+    NoBitsSectionEnd = 6,
+    SegmentEnd = 7,
+    LoadSegmentEnd = 8,
 }
 
 use EventKind::*;

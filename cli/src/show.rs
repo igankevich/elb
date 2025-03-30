@@ -123,8 +123,7 @@ fn show_sections(
     for section in elf.sections.iter() {
         let memory_start = section.virtual_address;
         let memory_end = memory_start + section.size;
-        let file_start = section.offset;
-        let file_end = file_start + section.size;
+        let file_offsets = section.file_offset_range();
         let name_bytes = names
             .get_string(section.name_offset as usize)
             .unwrap_or_default();
@@ -132,8 +131,8 @@ fn show_sections(
         printer.row(format_args!(
             "{:20}  {:#018x}..{:#018x}  {:#018x}..{:#018x}  {}  {}",
             name,
-            file_start,
-            file_end,
+            file_offsets.start,
+            file_offsets.end,
             memory_start,
             memory_end,
             SectionFlagsStr(section.flags),
@@ -174,7 +173,9 @@ fn show_segments(
         let file_end = file_start + segment.file_size;
         let mut section_names = Vec::new();
         for section in elf.sections.iter() {
-            if (file_start..file_end).contains(&section.offset) {
+            if (file_start..file_end).contains(&section.offset)
+                || (memory_start..memory_end).contains(&section.virtual_address)
+            {
                 let name_bytes = names
                     .get_string(section.name_offset as usize)
                     .unwrap_or_default();

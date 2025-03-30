@@ -210,8 +210,6 @@ impl DynamicLoader {
                     continue 'outer;
                 }
             }
-            trace!("Search paths {:#?}", search_dirs);
-            trace!("Resolved file names {:#?}", file_names);
             return Err(Error::FailedToResolve(
                 dep_name.into(),
                 dependent_file.to_path_buf(),

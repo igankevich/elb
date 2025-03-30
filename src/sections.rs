@@ -318,6 +318,9 @@ impl Section {
 
     /// In-file location of the segment.
     pub const fn file_offset_range(&self) -> Range<u64> {
+        if matches!(self.kind, SectionKind::NoBits) {
+            return self.offset..self.offset;
+        }
         let start = self.offset;
         let end = start + self.size;
         start..end
