@@ -19,7 +19,7 @@ fn read_elf_files_from_file_system() {
     }
     dirs.sort_unstable();
     dirs.dedup();
-    eprintln!("Library search directories: {:#?}", dirs);
+    eprintln!("ELF search directories: {:#?}", dirs);
     let mut num_checked: usize = 0;
     for path in dirs.iter() {
         eprintln!("Entering {:?}", path);

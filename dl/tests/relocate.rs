@@ -21,10 +21,10 @@ use std::process::Stdio;
 
 use elb::Elf;
 use elb::ElfPatcher;
+use fs_err::read_dir;
 use fs_err::File;
 use fs_err::OpenOptions;
 use tempfile::TempDir;
-use walkdir::WalkDir;
 
 use elb::DynamicTag;
 use elb_dl::glibc;
@@ -42,21 +42,29 @@ fn loader_resolves_system_files() {
     }
     paths.sort_unstable();
     paths.dedup();
+    eprintln!("ELF search directories: {:#?}", paths);
     let loader = DynamicLoader::options()
         .page_size(4096)
         .search_dirs({
             let mut dirs = Vec::new();
             dirs.extend(glibc::get_hard_coded_search_dirs(None).unwrap());
             dirs.extend(glibc::get_search_dirs("/").unwrap());
+            eprintln!("Library search directories: {:#?}", dirs);
             dirs
         })
         .new_loader();
     let mut visited = HashSet::new();
-    for dir in paths.iter() {
-        if !dir.exists() || !dir.is_dir() {
+    let mut num_checked: usize = 0;
+    for path in paths.iter() {
+        eprintln!("Entering {:?}", path);
+        if !path.exists() || !path.is_dir() {
             continue;
         }
-        for entry in WalkDir::new(dir).into_iter() {
+        let Ok(dir) = read_dir(path) else {
+            eprintln!("Failed to open directory {:?}", path);
+            continue;
+        };
+        for entry in dir {
             let Ok(entry) = entry else {
                 continue;
             };
@@ -93,7 +101,6 @@ fn loader_resolves_system_files() {
             {
                 continue;
             }
-            //eprintln!("Reading {:?}", path);
             match loader.resolve_dependencies(&path) {
                 Ok((elf, dependencies)) => {
                     let file = File::open(&path).unwrap();
@@ -132,7 +139,6 @@ fn loader_resolves_system_files() {
                         let mut queue = VecDeque::new();
                         queue.extend(dependencies.iter().cloned());
                         while let Some(dep_file) = queue.pop_front() {
-                            eprintln!("Dependency {:?}", dep_file);
                             let file_hash = hash_file(&dep_file);
                             if !copied_files_hashes.insert(file_hash.clone()) {
                                 continue;
@@ -199,7 +205,6 @@ fn loader_resolves_system_files() {
                         let new_interpreter = workdir
                             .join(&interpreter_hash)
                             .join(interpreter.file_name().unwrap());
-                        eprintln!("New interpreter {:?}", new_interpreter);
                         let mut new_interpreter = new_interpreter.into_os_string();
                         new_interpreter.push("\0");
                         patcher
@@ -248,6 +253,7 @@ fn loader_resolves_system_files() {
                                 );
                         }
                         eprintln!("SUCCESS {:?}", path);
+                        num_checked += 1;
                     }
                 }
                 Err(Error::Elf(elb::Error::NotElf)) => continue,
@@ -257,6 +263,7 @@ fn loader_resolves_system_files() {
             }
         }
     }
+    eprintln!("Checked {} file(s)", num_checked);
 }
 
 fn hash_file<P: AsRef<Path>>(path: P) -> String {
