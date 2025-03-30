@@ -3,8 +3,8 @@ use std::env::split_paths;
 use std::env::var_os;
 use std::path::PathBuf;
 
-use elfie::Elf;
-use elfie::Error;
+use elb::Elf;
+use elb::Error;
 use walkdir::WalkDir;
 
 #[test]

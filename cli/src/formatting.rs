@@ -1,7 +1,7 @@
-use elfie::SectionFlags;
-use elfie::SectionKind;
-use elfie::SegmentFlags;
-use elfie::SegmentKind;
+use elb::SectionFlags;
+use elb::SectionKind;
+use elb::SegmentFlags;
+use elb::SegmentKind;
 
 pub struct SectionKindStr(pub SectionKind);
 

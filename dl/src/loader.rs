@@ -7,10 +7,10 @@ use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 
-use elfie::Class;
-use elfie::DynamicTag;
-use elfie::Elf;
-use elfie::Machine;
+use elb::Class;
+use elb::DynamicTag;
+use elb::Elf;
+use elb::Machine;
 use fs_err::File;
 use log::log_enabled;
 use log::trace;
@@ -70,7 +70,7 @@ impl LoaderOptions {
     ///
     /// This value is used to substitute `$PLATFORM` variable in `RPATH` and `RUNPATH`.
     ///
-    /// When not set the platform is interpolated based on [`Machine`](elfie::Machine)
+    /// When not set the platform is interpolated based on [`Machine`](elb::Machine)
     /// (best-effort).
     pub fn platform(mut self, platform: Option<OsString>) -> Self {
         self.platform = platform;
@@ -196,7 +196,7 @@ impl DynamicLoader {
                 };
                 let dep = match Elf::read_unchecked(&mut file, self.page_size) {
                     Ok(dep) => dep,
-                    Err(elfie::Error::NotElf) => continue,
+                    Err(elb::Error::NotElf) => continue,
                     Err(e) => return Err(e.into()),
                 };
                 if dep.header.byte_order == elf.header.byte_order
@@ -278,7 +278,7 @@ fn interpolate(
 mod tests {
     use super::*;
     use crate::glibc;
-    use elfie::ElfPatcher;
+    use elb::ElfPatcher;
     use fs_err::OpenOptions;
     use std::collections::HashSet;
     use std::collections::VecDeque;
@@ -391,7 +391,7 @@ mod tests {
                                 continue;
                             }
                             eprintln!("Result {:?}", expected_result);
-                            let tmpdir = TempDir::with_prefix("elfie-test-").unwrap();
+                            let tmpdir = TempDir::with_prefix("elb-test-").unwrap();
                             let workdir = tmpdir.path();
                             fs_err::create_dir_all(workdir).unwrap();
                             let mut queue = VecDeque::new();
@@ -519,7 +519,7 @@ mod tests {
                             eprintln!("SUCCESS {:?}", path);
                         }
                     }
-                    Err(Error::Elf(elfie::Error::NotElf)) => continue,
+                    Err(Error::Elf(elb::Error::NotElf)) => continue,
                     Err(e) => {
                         panic!("Failed to process {:?}: {e}", path);
                     }

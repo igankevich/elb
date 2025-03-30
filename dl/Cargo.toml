@@ -1,5 +1,5 @@
 [package]
-name = "elfie-dl"
+name = "elb-dl"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ glibc = ["dep:glob"]
 musl = []
 
 [dependencies]
-elfie = { path = "..", version = "0.1.0" }
+elb = { path = "..", version = "0.1.0" }
 fs-err = "3.1.0"
 glob = { version = "0.3.2", optional = true }
 log.workspace = true

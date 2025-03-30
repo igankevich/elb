@@ -211,7 +211,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "elfie"
+name = "elb"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
@@ -224,13 +224,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "elfie-cli"
+name = "elb-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
  "colored",
- "elfie",
- "elfie-dl",
+ "elb",
+ "elb-dl",
  "env_logger",
  "fs-err",
  "log",
@@ -238,11 +238,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "elfie-dl"
+name = "elb-dl"
 version = "0.1.0"
 dependencies = [
  "base32",
- "elfie",
+ "elb",
  "env_logger",
  "fs-err",
  "glob",

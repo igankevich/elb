@@ -1,5 +1,5 @@
 [package]
-name = "elfie"
+name = "elb"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

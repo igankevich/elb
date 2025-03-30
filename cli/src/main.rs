@@ -14,14 +14,14 @@ use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use elfie::ArmFlags;
-use elfie::Elf;
-use elfie::ElfPatcher;
-use elfie::Machine;
-use elfie::StringTable;
-use elfie_dl::glibc;
-use elfie_dl::musl;
-use elfie_dl::DynamicLoader;
+use elb::ArmFlags;
+use elb::Elf;
+use elb::ElfPatcher;
+use elb::Machine;
+use elb::StringTable;
+use elb_dl::glibc;
+use elb_dl::musl;
+use elb_dl::DynamicLoader;
 use fs_err::File;
 use fs_err::OpenOptions;
 
@@ -570,7 +570,7 @@ enum DynamicEntry {
     Runpath,
 }
 
-impl From<DynamicEntry> for elfie::DynamicTag {
+impl From<DynamicEntry> for elb::DynamicTag {
     fn from(other: DynamicEntry) -> Self {
         match other {
             DynamicEntry::Rpath => Self::Rpath,
