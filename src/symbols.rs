@@ -191,14 +191,15 @@ mod tests {
 
     impl ArbitraryWithClass<'_> for Symbol {
         fn arbitrary(u: &mut Unstructured<'_>, class: Class) -> arbitrary::Result<Self> {
+            let info = u.arbitrary()?;
             Ok(match class {
                 Class::Elf32 => Self {
                     address: u.arbitrary::<u32>()?.into(),
                     size: u.arbitrary::<u32>()?.into(),
                     name_offset: u.arbitrary()?,
                     section_index: u.arbitrary()?,
-                    binding: u.arbitrary()?,
-                    kind: u.arbitrary()?,
+                    binding: SymbolBinding::from_info(info),
+                    kind: SymbolKind::from_info(info),
                     visibility: u.arbitrary()?,
                 },
                 Class::Elf64 => Self {
@@ -206,8 +207,8 @@ mod tests {
                     size: u.arbitrary()?,
                     name_offset: u.arbitrary()?,
                     section_index: u.arbitrary()?,
-                    binding: u.arbitrary()?,
-                    kind: u.arbitrary()?,
+                    binding: SymbolBinding::from_info(info),
+                    kind: SymbolKind::from_info(info),
                     visibility: u.arbitrary()?,
                 },
             })

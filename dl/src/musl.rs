@@ -5,7 +5,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
 
-use fs_err::File;
+use crate::fs::File;
 use log::log_enabled;
 use log::trace;
 use log::warn;

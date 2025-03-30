@@ -4,7 +4,9 @@ use std::collections::VecDeque;
 use std::env::split_paths;
 use std::io::BufWriter;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 
 use elb_dl::glibc;
 use elb_dl::musl;
@@ -27,6 +29,12 @@ pub struct DepsArgs {
     /// Override library search directories.
     #[clap(short = 'L', long = "search-dirs", value_name = "DIR1:DIR2:...")]
     search_dirs: Option<PathBuf>,
+
+    /// Use `ld.so --list-diagnostics` to figure out hard-coded library search directoris.
+    ///
+    /// Useful on Guix and Nix.
+    #[clap(action, long = "hard-coded-search-dirs")]
+    hard_coded_search_dirs: bool,
 
     /// Tree visual style.
     #[clap(
@@ -55,16 +63,26 @@ pub struct DepsArgs {
     )]
     libc: Libc,
 
-    /// ELF file.
-    #[clap(value_name = "ELF file")]
-    file: PathBuf,
+    /// ELF file(s).
+    #[clap(value_name = "FILE...")]
+    files: Vec<PathBuf>,
 }
 
 pub fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
     let search_dirs = {
         let mut search_dirs = Vec::new();
         match args.libc {
-            Libc::Glibc => search_dirs.extend(glibc::get_search_dirs(&args.root)?),
+            Libc::Glibc => {
+                search_dirs.extend(glibc::get_search_dirs(&args.root)?);
+                if args.hard_coded_search_dirs {
+                    let ld_so = if args.root == Path::new("/") {
+                        None
+                    } else {
+                        Some(Command::new(args.root.join("bin/ls")))
+                    };
+                    search_dirs.extend(glibc::get_hard_coded_search_dirs(ld_so)?);
+                }
+            }
             Libc::Musl => {
                 let arch = args.arch.as_deref().unwrap_or(std::env::consts::ARCH);
                 search_dirs.extend(musl::get_search_dirs(&args.root, arch)?);
@@ -82,29 +100,33 @@ pub fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error
         .new_loader();
     let mut table: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
     let mut queue = VecDeque::new();
-    for path in loader.resolve_dependencies(&args.file)?.1.into_iter() {
-        let path = fs_err::canonicalize(path)?;
-        queue.push_back((args.file.clone(), path));
-    }
-    while let Some((dependent, dependency)) = queue.pop_front() {
-        if !table
-            .entry(dependent.clone())
-            .or_default()
-            .insert(dependency.clone())
-        {
-            continue;
-        }
-        for path in loader.resolve_dependencies(&dependency)?.1.into_iter() {
+    for file in args.files.iter() {
+        for path in loader.resolve_dependencies(file)?.1.into_iter() {
             let path = fs_err::canonicalize(path)?;
-            queue.push_back((dependency.clone(), path));
+            queue.push_back((file.clone(), path));
+        }
+        while let Some((dependent, dependency)) = queue.pop_front() {
+            if !table
+                .entry(dependent.clone())
+                .or_default()
+                .insert(dependency.clone())
+            {
+                continue;
+            }
+            for path in loader.resolve_dependencies(&dependency)?.1.into_iter() {
+                let path = fs_err::canonicalize(path)?;
+                queue.push_back((dependency.clone(), path));
+            }
         }
     }
-    let style = args.style.to_style();
     let mut writer = BufWriter::new(std::io::stdout());
+    let style = args.style.to_style();
     match args.format {
         DepsFormat::List => {
             let mut all_dependencies = BTreeSet::new();
-            all_dependencies.extend(table.remove(&args.file).unwrap_or_default());
+            for file in args.files.iter() {
+                all_dependencies.extend(table.remove(file).unwrap_or_default());
+            }
             for (dependent, dependencies) in table.into_iter() {
                 all_dependencies.insert(dependent);
                 all_dependencies.extend(dependencies);
@@ -114,10 +136,12 @@ pub fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error
             }
         }
         DepsFormat::Tree => {
-            let last = table.len() == 1;
-            let mut stack = VecDeque::new();
-            stack.push_back(last);
-            print_tree(&mut writer, &mut stack, args.file.clone(), &table, style)?;
+            for file in args.files.into_iter() {
+                let last = table.len() == 1;
+                let mut stack = VecDeque::new();
+                stack.push_back(last);
+                print_tree(&mut writer, &mut stack, file, &table, style)?;
+            }
         }
         DepsFormat::TableTree => {
             for (dependent, dependencies) in table.into_iter() {

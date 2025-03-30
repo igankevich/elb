@@ -605,7 +605,6 @@ mod tests {
                 SegmentFlags::WRITABLE,
             )];
             let alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
-            std::eprintln!("Map: {}", alloc);
             let mut section = section(1000, 1, SectionFlags::WRITE | SectionFlags::ALLOC);
             alloc.allocate_section(&mut section).unwrap();
             assert_eq!(2000, section.offset);
@@ -620,7 +619,6 @@ mod tests {
                 SegmentFlags::WRITABLE,
             )];
             let alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
-            std::eprintln!("Map: {}", alloc);
             let mut section = section(1000, 1, SectionFlags::WRITE | SectionFlags::ALLOC);
 
             alloc.allocate_section(&mut section).unwrap();
@@ -639,7 +637,6 @@ mod tests {
                 SegmentFlags::WRITABLE,
             )];
             let alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
-            std::eprintln!("Map: {}", alloc);
             let mut section = section(1000, 1, SectionFlags::WRITE | SectionFlags::ALLOC);
             alloc.allocate_section(&mut section).unwrap();
             assert_eq!(2000, section.offset);
@@ -657,7 +654,6 @@ mod tests {
                 SegmentFlags::WRITABLE,
             )];
             let alloc = SpaceAllocator::new(Class::Elf64, 4096, &sections, &mut segments);
-            std::eprintln!("Map: {}", alloc);
             let mut section = section(1000, 1, SectionFlags::WRITE | SectionFlags::ALLOC);
             alloc.allocate_section(&mut section).unwrap();
             assert_eq!(3000, section.offset);

@@ -3,10 +3,14 @@ name = "elb-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-
-[[bin]]
-name = "elb"
-path = "src/main.rs"
+homepage.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/elb-cli"
+readme = "README.md"
+description = "Command-line utility that inspects ELF files, prints their dependencies and patches RPATH, RUNPATH and interpreter."
+keywords = ["elf", "patch", "rpath", "runpath", "interpreter"]
+categories = ["encoding", "command-line-utilities", "api-bindings"]
+include = ["**/*.rs", "Cargo.toml", "README.md"]
 
 [dependencies]
 clap = { version = "4.5.31", features = ["derive"] }

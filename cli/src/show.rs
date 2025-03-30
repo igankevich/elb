@@ -44,7 +44,8 @@ pub fn show(common: CommonArgs, args: ShowArgs) -> Result<(), Box<dyn std::error
             show_header(&elf, &mut printer);
         }
         What::Sections => {
-            let mut printer = Printer::new(false);
+            let mut printer = Printer::new(true);
+            printer.title("Sections");
             show_sections(&elf, &section_names, &mut printer)?;
         }
         What::Segments => {
@@ -52,7 +53,7 @@ pub fn show(common: CommonArgs, args: ShowArgs) -> Result<(), Box<dyn std::error
             show_segments(&elf, &section_names, &mut printer)?;
         }
         What::Symbols => {
-            let mut printer = Printer::new(false);
+            let mut printer = Printer::new(true);
             show_symbols(&elf, &section_names, &mut file, &mut printer)?;
         }
         What::All => {
@@ -140,18 +141,18 @@ fn show_sections(
         ));
     }
     printer.title("Section flags");
-    println!("  w  Writable");
-    println!("  a  Occupies memory during execution");
-    println!("  x  Executable");
-    println!("  m  Mergeable");
-    println!("  s  Contains NUL-terminated strings");
-    println!("  i  Linked to another section");
-    println!("  l  Preserve order after combining");
-    println!("  o  OS specific handling required");
-    println!("  g  Group member");
-    println!("  t  Holds thread-local data");
-    println!("  c  Compressed");
-    println!("  *  Unknown flags");
+    printer.line("  w  Writable");
+    printer.line("  a  Occupies memory during execution");
+    printer.line("  x  Executable");
+    printer.line("  m  Mergeable");
+    printer.line("  s  Contains NUL-terminated strings");
+    printer.line("  i  Linked to another section");
+    printer.line("  l  Preserve order after combining");
+    printer.line("  o  OS specific handling required");
+    printer.line("  g  Group member");
+    printer.line("  t  Holds thread-local data");
+    printer.line("  c  Compressed");
+    printer.line("  *  Unknown flags");
     Ok(())
 }
 
@@ -292,6 +293,10 @@ impl Printer {
     fn row<V: std::fmt::Display>(&mut self, value: V) {
         let indent = if self.indent { "  " } else { "" };
         let _ = writeln!(self.writer, "{}{}", indent, value);
+    }
+
+    fn line<V: std::fmt::Display>(&mut self, value: V) {
+        let _ = writeln!(self.writer, "{}", value);
     }
 }
 

@@ -27,7 +27,7 @@ pub struct PatchArgs {
     set_dynamic: Vec<String>,
 
     /// Remove dynamic table entry.
-    #[clap(action, long = "remove-dynamic")]
+    #[clap(action, long = "remove-dynamic", value_name = "tag")]
     remove_dynamic: Vec<DynamicEntry>,
 
     /// ELF file.

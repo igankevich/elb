@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 
+use crate::define_enum_v2;
 use crate::define_infallible_enum;
 use crate::Error;
 
@@ -375,7 +376,7 @@ impl SymbolVisibility {
     }
 }
 
-define_infallible_enum! {
+define_enum_v2! {
     "Symbol binding.",
     SymbolBinding, u8,
     (Local, 0, "Local symbol."),
@@ -396,11 +397,11 @@ impl SymbolBinding {
 
     /// Convert to the bits of the symbol's `info` field.
     pub const fn to_info_bits(self) -> u8 {
-        self.as_number() << 4
+        self.as_u8() << 4
     }
 }
 
-define_infallible_enum! {
+define_enum_v2! {
     "Symbol type.",
     SymbolKind, u8,
     (None, 0, "Unspecified."),
@@ -425,6 +426,6 @@ impl SymbolKind {
 
     /// Convert to the bits of the symbol's `info` field.
     pub const fn to_info_bits(self) -> u8 {
-        self.as_number() & 0xf
+        self.as_u8() & 0xf
     }
 }

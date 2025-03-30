@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
-use fs_err::File;
+use crate::fs::File;
 use glob::glob;
 use log::log_enabled;
 use log::trace;
