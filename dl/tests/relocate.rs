@@ -131,8 +131,11 @@ fn loader_resolves_system_files() {
                     let mut copied_files_hashes = HashSet::new();
                     if let Some(arg) = working_arg {
                         let arg = OsStr::from_bytes(arg.to_bytes());
-                        let expected_result =
-                            Command::new(&path).arg(arg).stdin(Stdio::null()).status();
+                        let expected_result = Command::new(&path)
+                            .arg(arg)
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::null())
+                            .status();
                         if expected_result.is_err() {
                             continue;
                         }
@@ -242,6 +245,7 @@ fn loader_resolves_system_files() {
                         let actual_result = Command::new(&new_path)
                             .arg(arg)
                             .stdin(Stdio::null())
+                            .stdout(Stdio::null())
                             .status();
                         let expected = expected_result.unwrap();
                         let actual = actual_result.unwrap();
@@ -323,4 +327,7 @@ const NOT_WORKING: &[&str] = &[
     "mtr-packet",
     // TODO something with RPATH, RUNPATH
     "systemd-analyze",
+    // A JSON parsing exception occurred in [/tmp/elb-test-2rconN/bicep.runtimeconfig.json], offset
+    // 0 (line 1, column 1): Invalid value.
+    "bicep",
 ];
