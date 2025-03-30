@@ -99,6 +99,8 @@ impl TryFrom<u8> for Class {
 
 #[cfg(test)]
 mod tests {
+    #![allow(missing_docs)]
+
     use super::*;
 
     use arbitrary::Unstructured;

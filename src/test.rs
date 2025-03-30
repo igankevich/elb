@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use alloc::vec::Vec;
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;

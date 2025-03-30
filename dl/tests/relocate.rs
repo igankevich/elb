@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used)]
+#![allow(missing_docs)]
 
 use std::collections::HashSet;
 use std::collections::VecDeque;
