@@ -273,7 +273,7 @@ fn append_paths_from_env(var_name: &str, paths: &mut Vec<PathBuf>) {
     let Some(value) = var_os(var_name) else {
         return Default::default();
     };
-    paths.extend(split_paths(&value).map(Into::into))
+    paths.extend(split_paths(&value))
 }
 
 /// Environment variables known to hold paths to ELF files.
