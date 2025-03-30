@@ -337,8 +337,10 @@ mod tests {
                                     bytes.push(0_u8);
                                     CString::from_vec_with_nul(bytes).unwrap()
                                 };
+                                patcher.remove_dynamic_tag(DynamicTag::Runpath).unwrap();
+                                patcher.remove_dynamic_tag(DynamicTag::Rpath).unwrap();
                                 patcher
-                                    .set_dynamic_c_str(DynamicTag::Runpath, &run_path)
+                                    .set_dynamic_c_str(DynamicTag::Runpath, run_path.as_c_str())
                                     .unwrap();
                                 patcher.finish().unwrap();
                             }
@@ -389,8 +391,9 @@ mod tests {
                                 CString::from_vec_with_nul(bytes).unwrap()
                             };
                             patcher.remove_dynamic_tag(DynamicTag::Runpath).unwrap();
+                            patcher.remove_dynamic_tag(DynamicTag::Rpath).unwrap();
                             patcher
-                                .set_dynamic_c_str(DynamicTag::Rpath, &run_path)
+                                .set_dynamic_c_str(DynamicTag::Runpath, run_path.as_c_str())
                                 .unwrap();
                             patcher.finish().unwrap();
                             let actual_result = Command::new(&new_path)

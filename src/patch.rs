@@ -9,6 +9,7 @@ use crate::constants::*;
 use crate::BlockIo;
 use crate::DynamicTable;
 use crate::DynamicTag;
+use crate::DynamicValue;
 use crate::Elf;
 use crate::ElfRead;
 use crate::ElfSeek;
@@ -366,7 +367,11 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
     /// Set the value under the specified dynamic tag in the dynamic table.
     ///
     /// Does nothing if the table is not present in the file.
-    pub fn set_dynamic_c_str(&mut self, entry_kind: DynamicTag, value: &CStr) -> Result<(), Error> {
+    pub fn set_dynamic_c_str<'a>(
+        &mut self,
+        entry_kind: DynamicTag,
+        value: impl Into<DynamicValue<'a>>,
+    ) -> Result<(), Error> {
         use DynamicTag::*;
         // Read and remove dynamic table.
         let (mut dynamic_table, old_dynamic_table_virtual_address) = match self
@@ -419,19 +424,25 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
             };
             let bytes = self.elf.sections[dynstr_table_index].read_content(&mut self.file)?;
             let mut dynstr_table = StringTable::from(bytes);
-            let (value_offset, dynstr_table_index) = self.get_string_offset(
-                value,
-                Some(dynstr_table_index),
-                DYNSTR_SECTION,
-                &mut dynstr_table,
-            )?;
+            let (value, dynstr_table_index) = match value.into() {
+                DynamicValue::CStr(value) => {
+                    let (offset, i) = self.get_string_offset(
+                        value,
+                        Some(dynstr_table_index),
+                        DYNSTR_SECTION,
+                        &mut dynstr_table,
+                    )?;
+                    (offset as u64, i)
+                }
+                DynamicValue::Word(value) => (value, dynstr_table_index),
+            };
             // Write `.dynstr` section.
             let dynstr_table_section = &self.elf.sections[dynstr_table_index];
             dynstr_table_section.write_out(&mut self.file, dynstr_table.as_ref())?;
             // Update dynamic table.
             dynamic_table.set(StringTableAddress, dynstr_table_section.virtual_address);
             dynamic_table.set(StringTableSize, dynstr_table_section.size);
-            dynamic_table.set(entry_kind, value_offset as u64);
+            dynamic_table.set(entry_kind, value);
             log::trace!("Updated `.dynstr` table");
             dynstr_table_index
         };

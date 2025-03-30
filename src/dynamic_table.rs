@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use core::ffi::CStr;
 use core::ops::Deref;
 use core::ops::DerefMut;
 
@@ -115,5 +116,22 @@ impl Deref for DynamicTable {
 impl DerefMut for DynamicTable {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.entries
+    }
+}
+
+pub enum DynamicValue<'a> {
+    CStr(&'a CStr),
+    Word(u64),
+}
+
+impl<'a> From<&'a CStr> for DynamicValue<'a> {
+    fn from(other: &'a CStr) -> Self {
+        Self::CStr(other)
+    }
+}
+
+impl From<u64> for DynamicValue<'_> {
+    fn from(other: u64) -> Self {
+        Self::Word(other)
     }
 }

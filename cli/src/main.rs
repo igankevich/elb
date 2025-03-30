@@ -482,7 +482,7 @@ fn patch(common: CommonArgs, args: PatchArgs) -> Result<(), Box<dyn std::error::
         let mut value = iter.next().ok_or("Value not found")?.as_bytes().to_vec();
         value.push(0_u8);
         let value = CString::from_vec_with_nul(value)?;
-        patcher.set_dynamic_c_str(tag.into(), &value)?;
+        patcher.set_dynamic_c_str(tag.into(), value.as_c_str())?;
         changed = true;
     }
     if !changed {
