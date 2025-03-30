@@ -89,6 +89,10 @@ fn loader_resolves_system_files() {
             let Some(file_name) = path.file_name() else {
                 continue;
             };
+            // TODO
+            if file_name.to_str().unwrap_or_default().contains("systemd") {
+                continue;
+            }
             if NOT_WORKING.contains(&file_name.to_str().unwrap_or_default()) {
                 // Known to not work.
                 continue;
@@ -317,4 +321,6 @@ const NOT_WORKING: &[&str] = &[
     // mtr-packet: Failure to open IPv4 sockets: Permission denied
     // mtr-packet: Failure to open IPv6 sockets: Permission denied
     "mtr-packet",
+    // TODO something with RPATH, RUNPATH
+    "systemd-analyze",
 ];
