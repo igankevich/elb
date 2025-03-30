@@ -8,7 +8,8 @@ cargo_publish() {
     done
 }
 
-if test "$GITHUB_ACTIONS" = "true" && test "$GITHUB_REF_TYPE" != "tag"; then
-    exit 0
-fi
+# TODO
+#if test "$GITHUB_ACTIONS" = "true" && test "$GITHUB_REF_TYPE" != "tag"; then
+#    exit 0
+#fi
 cargo_publish
