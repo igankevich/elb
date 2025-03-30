@@ -1,7 +1,8 @@
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
-use crate::BlockIo;
+use crate::BlockRead;
+use crate::BlockWrite;
 use crate::ElfRead;
 use crate::ElfSeek;
 use crate::ElfWrite;
@@ -83,11 +84,11 @@ impl Elf {
 
     /// Check consistency of the data.
     ///
-    /// Validates internal ELF invariants.
+    /// Validates consistency of sections, segments and their contents.
     pub fn check(&self) -> Result<(), Error> {
         self.header.check()?;
-        self.segments.validate(&self.header, self.page_size)?;
-        self.sections.validate(&self.header, &self.segments)?;
+        self.segments.check(&self.header, self.page_size)?;
+        self.sections.check(&self.header, &self.segments)?;
         assert_eq!(self.sections.len(), self.header.num_sections as usize);
         assert_eq!(self.segments.len(), self.header.num_segments as usize);
         Ok(())
@@ -101,7 +102,11 @@ impl Elf {
         let Some(section) = self.sections.get(self.header.section_names_index as usize) else {
             return Ok(None);
         };
-        Ok(Some(section.read_content(file)?.into()))
+        Ok(Some(section.read_content(
+            file,
+            self.header.class,
+            self.header.byte_order,
+        )?))
     }
 
     /// Read the contents of the specified by name.
@@ -118,7 +123,11 @@ impl Elf {
         else {
             return Ok(None);
         };
-        Ok(Some(self.sections[i].read_content(file)?))
+        Ok(Some(self.sections[i].read_content(
+            file,
+            self.header.class,
+            self.header.byte_order,
+        )?))
     }
 
     /// Get page size specified on creation.

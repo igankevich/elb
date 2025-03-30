@@ -19,7 +19,7 @@ use elfie::Elf;
 use elfie::ElfPatcher;
 use elfie::Machine;
 use elfie::StringTable;
-use elfie_dl::ld_so;
+use elfie_dl::gnu;
 use elfie_dl::DynamicLoader;
 use fs_err::File;
 use fs_err::OpenOptions;
@@ -319,7 +319,7 @@ fn check(common: CommonArgs, file: PathBuf) -> Result<(), Box<dyn std::error::Er
 
 fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
     let search_paths = {
-        let mut search_paths = ld_so::get_search_dirs(&args.root)?;
+        let mut search_paths = gnu::get_search_dirs(&args.root)?;
         if let Some(path) = args.search_paths.as_ref() {
             search_paths.extend(split_paths(path));
         }
@@ -482,7 +482,10 @@ fn patch(common: CommonArgs, args: PatchArgs) -> Result<(), Box<dyn std::error::
         let mut value = iter.next().ok_or("Value not found")?.as_bytes().to_vec();
         value.push(0_u8);
         let value = CString::from_vec_with_nul(value)?;
-        patcher.set_dynamic_c_str(tag.into(), value.as_c_str())?;
+        if !matches!(tag, DynamicEntry::Rpath | DynamicEntry::Runpath) {
+            return Err("Only RUNPATH and RPATH can be set".into());
+        }
+        patcher.set_library_search_path(tag.into(), value.as_c_str())?;
         changed = true;
     }
     if !changed {

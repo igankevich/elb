@@ -1,12 +1,12 @@
 use alloc::ffi::CString;
 use alloc::vec::Vec;
 use core::ffi::CStr;
-use core::ops::Deref;
 use log::log_enabled;
 use log::Level;
 
 use crate::constants::*;
-use crate::BlockIo;
+use crate::BlockRead;
+use crate::BlockWrite;
 use crate::DynamicTable;
 use crate::DynamicTag;
 use crate::DynamicValue;
@@ -15,8 +15,6 @@ use crate::ElfRead;
 use crate::ElfSeek;
 use crate::ElfWrite;
 use crate::Error;
-use crate::RelTable;
-use crate::RelaTable;
 use crate::Section;
 use crate::SectionFlags;
 use crate::SectionKind;
@@ -183,7 +181,6 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
     /// Adds or modifies `.interp` section and `INTERP` segment.
     pub fn set_interpreter(&mut self, interpreter: &CStr) -> Result<(), Error> {
         self.remove_interpreter()?;
-        let interpreter = interpreter.to_bytes_with_nul();
         let name_offset = self.get_name_offset(INTERP_SECTION)?;
         // Add `.interp` section and overlay it with LOAD segment.
         let i = self.alloc_section(Section {
@@ -194,14 +191,19 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
             flags: SectionFlags::ALLOC,
             virtual_address: 0,
             offset: 0,
-            size: interpreter.len() as u64,
+            size: (interpreter.count_bytes() + 1) as u64,
             link: 0,
             info: 0,
             align: INTERP_ALIGN,
             entry_len: 0,
         })?;
         let section = &self.elf.sections[i];
-        section.write_out(&mut self.file, interpreter)?;
+        section.write_content(
+            &mut self.file,
+            self.elf.header.class,
+            self.elf.header.byte_order,
+            interpreter,
+        )?;
         // Add INTERP segment.
         self.elf.segments.push(Segment {
             kind: SegmentKind::Interpreter,
@@ -266,70 +268,7 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
         Ok(())
     }
 
-    pub fn read_symbol_table(&mut self) -> Result<Option<(SymbolTable, usize)>, Error> {
-        let names = self
-            .elf
-            .read_section_names(&mut self.file)?
-            .unwrap_or_default();
-        let Some(i) = self.elf.sections.iter().position(|section| {
-            section.kind == SectionKind::SymbolTable
-                && Some(SYMTAB_SECTION) == names.get_string(section.name_offset as usize)
-        }) else {
-            return Ok(None);
-        };
-        let section = &self.elf.sections[i];
-        self.file.seek(section.offset)?;
-        let table = SymbolTable::read(
-            &mut self.file,
-            self.elf.header.class,
-            self.elf.header.byte_order,
-            section.size,
-        )?;
-        Ok(Some((table, i)))
-    }
-
-    pub fn read_rel_table_for(
-        &mut self,
-        section_index: u32,
-    ) -> Result<Option<(RelTable, usize)>, Error> {
-        let Some(i) = self.elf.sections.iter().position(|section| {
-            use SectionKind::*;
-            matches!(section.kind, RelTable) && section.link == section_index
-        }) else {
-            return Ok(None);
-        };
-        let section = &self.elf.sections[i];
-        self.file.seek(section.offset)?;
-        let table = RelTable::read(
-            &mut self.file,
-            self.elf.header.class,
-            self.elf.header.byte_order,
-            section.size,
-        )?;
-        Ok(Some((table, i)))
-    }
-
-    pub fn read_rela_table_for(
-        &mut self,
-        section_index: u32,
-    ) -> Result<Option<(RelaTable, usize)>, Error> {
-        let Some(i) = self.elf.sections.iter().position(|section| {
-            use SectionKind::*;
-            matches!(section.kind, RelaTable) && section.link == section_index
-        }) else {
-            return Ok(None);
-        };
-        let section = &self.elf.sections[i];
-        self.file.seek(section.offset)?;
-        let table = RelaTable::read(
-            &mut self.file,
-            self.elf.header.class,
-            self.elf.header.byte_order,
-            section.size,
-        )?;
-        Ok(Some((table, i)))
-    }
-
+    /// Read dynamic table.
     pub fn read_dynamic_table(&mut self) -> Result<Option<DynamicTable>, Error> {
         let Some(i) = self
             .elf
@@ -350,29 +289,35 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
         Ok(Some(table))
     }
 
+    /// Read dynamic string table.
     pub fn read_dynamic_string_table(&mut self) -> Result<StringTable, Error> {
         let names = self
             .elf
             .read_section_names(&mut self.file)?
             .unwrap_or_default();
-        let bytes = match self.elf.sections.iter().position(|section| {
+        let table = match self.elf.sections.iter().position(|section| {
             Some(DYNSTR_SECTION) == names.get_string(section.name_offset as usize)
         }) {
-            Some(i) => self.elf.sections[i].read_content(&mut self.file)?,
-            None => Vec::new(),
+            Some(i) => self.elf.sections[i].read_content(
+                &mut self.file,
+                self.elf.header.class,
+                self.elf.header.byte_order,
+            )?,
+            None => Default::default(),
         };
-        Ok(StringTable::from(bytes))
+        Ok(table)
     }
 
     /// Set the value under the specified dynamic tag in the dynamic table.
     ///
     /// Does nothing if the table is not present in the file.
-    pub fn set_dynamic_c_str<'a>(
+    pub fn set_library_search_path<'a>(
         &mut self,
         entry_kind: DynamicTag,
         value: impl Into<DynamicValue<'a>>,
     ) -> Result<(), Error> {
         use DynamicTag::*;
+        assert!(matches!(entry_kind, Rpath | Runpath));
         // Read and remove dynamic table.
         let (mut dynamic_table, old_dynamic_table_virtual_address) = match self
             .elf
@@ -422,8 +367,12 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
                 log::trace!("Couldn't find `.dynstr` section");
                 return Ok(());
             };
-            let bytes = self.elf.sections[dynstr_table_index].read_content(&mut self.file)?;
-            let mut dynstr_table = StringTable::from(bytes);
+            let mut dynstr_table: StringTable = self.elf.sections[dynstr_table_index]
+                .read_content(
+                    &mut self.file,
+                    self.elf.header.class,
+                    self.elf.header.byte_order,
+                )?;
             let (value, dynstr_table_index) = match value.into() {
                 DynamicValue::CStr(value) => {
                     let (offset, i) = self.get_string_offset(
@@ -438,8 +387,20 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
             };
             // Write `.dynstr` section.
             let dynstr_table_section = &self.elf.sections[dynstr_table_index];
-            dynstr_table_section.write_out(&mut self.file, dynstr_table.as_ref())?;
+            dynstr_table_section.write_content(
+                &mut self.file,
+                self.elf.header.class,
+                self.elf.header.byte_order,
+                &dynstr_table,
+            )?;
             // Update dynamic table.
+            dynamic_table.retain(|(kind, _value)| {
+                let retain = !matches!(kind, Rpath | Runpath);
+                if !retain {
+                    log::trace!("Removing dynamic table entry {:?}", kind);
+                }
+                retain
+            });
             dynamic_table.set(StringTableAddress, dynstr_table_section.virtual_address);
             dynamic_table.set(StringTableSize, dynstr_table_section.size);
             dynamic_table.set(entry_kind, value);
@@ -582,7 +543,12 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
                     entry_len: 0,
                 })?;
                 let names = get_section_names!(self);
-                self.elf.sections[i].write_out(&mut self.file, names.as_ref())?;
+                self.elf.sections[i].write_content(
+                    &mut self.file,
+                    self.elf.header.class,
+                    self.elf.header.byte_order,
+                    &names,
+                )?;
                 self.elf.header.section_names_index = i
                     .try_into()
                     .map_err(|_| Error::TooBig("Section names index"))?;
@@ -635,7 +601,12 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
                     align: STRING_TABLE_ALIGN,
                     entry_len: 0,
                 })?;
-                self.elf.sections[i].write_out(&mut self.file, table.as_ref())?;
+                self.elf.sections[i].write_content(
+                    &mut self.file,
+                    self.elf.header.class,
+                    self.elf.header.byte_order,
+                    &table,
+                )?;
                 (outer_string_offset, i)
             }
         };
@@ -679,8 +650,8 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
 
     fn alloc_segment(&mut self, mut segment: Segment) -> Result<usize, Error> {
         let alloc = SpaceAllocator::new(
-            self.header.class,
-            self.page_size,
+            self.elf.header.class,
+            self.elf.page_size(),
             &self.elf.sections,
             &mut self.elf.segments,
         );
@@ -776,8 +747,8 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
 
     fn alloc_section(&mut self, mut section: Section) -> Result<usize, Error> {
         let alloc = SpaceAllocator::new(
-            self.header.class,
-            self.page_size,
+            self.elf.header.class,
+            self.elf.page_size(),
             &self.elf.sections,
             &mut self.elf.segments,
         );
@@ -802,7 +773,7 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
 
     fn alloc_section_header(&mut self, size: u64) -> Option<u64> {
         let alloc = SpaceAllocator::new(
-            self.header.class,
+            self.elf.header.class,
             self.page_size,
             &self.elf.sections,
             &mut self.elf.segments,
@@ -810,10 +781,12 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
         alloc.allocate_file_space(size, SECTION_HEADER_ALIGN)
     }
 
+    /// Get string table that contains section names.
     pub fn get_section_names(&mut self) -> Result<&StringTable, Error> {
         Ok(get_section_names!(self))
     }
 
+    /// Read section that has specified name.
     pub fn read_section(&mut self, name: &CStr) -> Result<Option<Vec<u8>>, Error> {
         let names = get_section_names!(self);
         self.elf.read_section(name, names, &mut self.file)
@@ -826,14 +799,6 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
                 .unwrap_or_default(),
         );
         Ok(())
-    }
-}
-
-impl<F> Deref for ElfPatcher<F> {
-    type Target = Elf;
-
-    fn deref(&self) -> &Self::Target {
-        &self.elf
     }
 }
 

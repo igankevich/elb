@@ -1,7 +1,7 @@
 use core::ops::Range;
 
+use crate::check_u32;
 use crate::constants::*;
-use crate::validate_u32;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
@@ -151,9 +151,9 @@ impl Header {
         }
         let (segments_range, sections_range) = match self.class {
             Class::Elf32 => {
-                validate_u32(self.entry_point, "Entry point")?;
-                validate_u32(self.program_header_offset, "Program header offset")?;
-                validate_u32(self.section_header_offset, "Section header offset")?;
+                check_u32(self.entry_point, "Entry point")?;
+                check_u32(self.program_header_offset, "Program header offset")?;
+                check_u32(self.section_header_offset, "Section header offset")?;
                 let segments_start = self.program_header_offset as u32;
                 let segments_end = (self.segment_len as u32)
                     .checked_mul(self.num_segments.into())

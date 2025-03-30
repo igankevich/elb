@@ -2,24 +2,42 @@ use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ops::DerefMut;
 
-use crate::BlockIo;
+use crate::BlockRead;
+use crate::BlockWrite;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
 use crate::ElfWrite;
 use crate::EntityIo;
 use crate::Error;
+use crate::SymbolBinding;
+use crate::SymbolKind;
+use crate::SymbolVisibility;
 
 /// A symbol.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Symbol {
+    /// Address.
     pub address: u64,
+    /// Associated size of zero if the size is unknown.
     pub size: u64,
+    /// The offset of the name in the symbol string table.
     pub name_offset: u32,
+    /// Relevant section index.
     pub section_index: u16,
-    pub info: u8,
-    pub other: u8,
+    /// Binding.
+    pub binding: SymbolBinding,
+    /// Type.
+    pub kind: SymbolKind,
+    /// Visibility.
+    pub visibility: SymbolVisibility,
+}
+
+impl Symbol {
+    const fn info(&self) -> u8 {
+        self.binding.to_info_bits() | self.kind.to_info_bits()
+    }
 }
 
 impl EntityIo for Symbol {
@@ -41,8 +59,9 @@ impl EntityIo for Symbol {
                     address,
                     size,
                     section_index,
-                    info,
-                    other,
+                    binding: SymbolBinding::from_info(info),
+                    kind: SymbolKind::from_info(info),
+                    visibility: SymbolVisibility::from_other(other),
                 })
             }
             Class::Elf64 => {
@@ -56,8 +75,9 @@ impl EntityIo for Symbol {
                     address,
                     size,
                     section_index,
-                    info,
-                    other,
+                    binding: SymbolBinding::from_info(info),
+                    kind: SymbolKind::from_info(info),
+                    visibility: SymbolVisibility::from_other(other),
                 })
             }
         }
@@ -74,13 +94,13 @@ impl EntityIo for Symbol {
             Class::Elf32 => {
                 writer.write_word(class, byte_order, self.address)?;
                 writer.write_u32_as_u64(byte_order, self.size)?;
-                writer.write_u8(self.info)?;
-                writer.write_u8(self.other)?;
+                writer.write_u8(self.info())?;
+                writer.write_u8(self.visibility as u8)?;
                 writer.write_u16(byte_order, self.section_index)?;
             }
             Class::Elf64 => {
-                writer.write_u8(self.info)?;
-                writer.write_u8(self.other)?;
+                writer.write_u8(self.info())?;
+                writer.write_u8(self.visibility as u8)?;
                 writer.write_u16(byte_order, self.section_index)?;
                 writer.write_word(class, byte_order, self.address)?;
                 writer.write_u64(byte_order, self.size)?;
@@ -104,7 +124,7 @@ impl SymbolTable {
     }
 }
 
-impl BlockIo for SymbolTable {
+impl BlockRead for SymbolTable {
     fn read<R: ElfRead>(
         reader: &mut R,
         class: Class,
@@ -119,7 +139,9 @@ impl BlockIo for SymbolTable {
         }
         Ok(Self { entries })
     }
+}
 
+impl BlockWrite for SymbolTable {
     fn write<W: ElfWrite>(
         &self,
         writer: &mut W,
@@ -175,16 +197,18 @@ mod tests {
                     size: u.arbitrary::<u32>()?.into(),
                     name_offset: u.arbitrary()?,
                     section_index: u.arbitrary()?,
-                    info: u.arbitrary()?,
-                    other: u.arbitrary()?,
+                    binding: u.arbitrary()?,
+                    kind: u.arbitrary()?,
+                    visibility: u.arbitrary()?,
                 },
                 Class::Elf64 => Self {
                     address: u.arbitrary()?,
                     size: u.arbitrary()?,
                     name_offset: u.arbitrary()?,
                     section_index: u.arbitrary()?,
-                    info: u.arbitrary()?,
-                    other: u.arbitrary()?,
+                    binding: u.arbitrary()?,
+                    kind: u.arbitrary()?,
+                    visibility: u.arbitrary()?,
                 },
             })
         }

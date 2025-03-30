@@ -4,7 +4,8 @@ use core::ops::Deref;
 use core::ops::DerefMut;
 
 use crate::io::*;
-use crate::BlockIo;
+use crate::BlockRead;
+use crate::BlockWrite;
 use crate::ByteOrder;
 use crate::Class;
 use crate::DynamicTag;
@@ -33,7 +34,7 @@ impl DynamicTable {
     }
 }
 
-impl BlockIo for DynamicTable {
+impl BlockRead for DynamicTable {
     fn read<R: ElfRead>(
         reader: &mut R,
         class: Class,
@@ -53,7 +54,9 @@ impl BlockIo for DynamicTable {
         }
         Ok(Self { entries })
     }
+}
 
+impl BlockWrite for DynamicTable {
     fn write<W: ElfWrite>(
         &self,
         writer: &mut W,
@@ -100,6 +103,9 @@ impl DynamicTable {
         }
     }
 
+    /// Get the value associated with the specified tag.
+    ///
+    /// Returns the first value if there are multiple values in the table.
     pub fn get(&self, tag: DynamicTag) -> Option<u64> {
         self.iter()
             .find_map(|(kind, value)| (*kind == tag).then_some(*value))
@@ -119,8 +125,11 @@ impl DerefMut for DynamicTable {
     }
 }
 
+/// Dynamic table entry's value.
 pub enum DynamicValue<'a> {
+    /// C-string.
     CStr(&'a CStr),
+    /// Word.
     Word(u64),
 }
 

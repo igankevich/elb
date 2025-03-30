@@ -44,7 +44,10 @@ impl DynamicLoader {
         let elf = Elf::read(&mut file, self.page_size)?;
         let mut patcher = ElfPatcher::new(elf, file);
         let dynstr_table = patcher.read_dynamic_string_table()?;
-        let dynamic_table = patcher.read_dynamic_table()?.unwrap_or_default();
+        let Some(dynamic_table) = patcher.read_dynamic_table()? else {
+            let (elf, _file) = patcher.into_inner();
+            return Ok((elf, Default::default()));
+        };
         let interpreter = patcher
             .read_interpreter()?
             .map(|c_str| PathBuf::from(OsStr::from_bytes(c_str.to_bytes())));
@@ -177,7 +180,7 @@ fn interpolate(dir: &Path, file: &Path, elf: &Elf) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ld_so;
+    use crate::gnu;
     use fs_err::OpenOptions;
     use std::collections::HashSet;
     use std::collections::VecDeque;
@@ -207,8 +210,8 @@ mod tests {
         paths.dedup();
         let loader = DynamicLoader::new(4096, {
             let mut dirs = Vec::new();
-            dirs.extend(ld_so::get_hard_coded_search_dirs(None).unwrap());
-            dirs.extend(ld_so::get_search_dirs("/").unwrap());
+            dirs.extend(gnu::get_hard_coded_search_dirs(None).unwrap());
+            dirs.extend(gnu::get_search_dirs("/").unwrap());
             dirs
         });
         let mut visited = HashSet::new();
@@ -337,10 +340,11 @@ mod tests {
                                     bytes.push(0_u8);
                                     CString::from_vec_with_nul(bytes).unwrap()
                                 };
-                                patcher.remove_dynamic_tag(DynamicTag::Runpath).unwrap();
-                                patcher.remove_dynamic_tag(DynamicTag::Rpath).unwrap();
                                 patcher
-                                    .set_dynamic_c_str(DynamicTag::Runpath, run_path.as_c_str())
+                                    .set_library_search_path(
+                                        DynamicTag::Runpath,
+                                        run_path.as_c_str(),
+                                    )
                                     .unwrap();
                                 patcher.finish().unwrap();
                             }
@@ -390,10 +394,8 @@ mod tests {
                                 bytes.push(0_u8);
                                 CString::from_vec_with_nul(bytes).unwrap()
                             };
-                            patcher.remove_dynamic_tag(DynamicTag::Runpath).unwrap();
-                            patcher.remove_dynamic_tag(DynamicTag::Rpath).unwrap();
                             patcher
-                                .set_dynamic_c_str(DynamicTag::Runpath, run_path.as_c_str())
+                                .set_library_search_path(DynamicTag::Runpath, run_path.as_c_str())
                                 .unwrap();
                             patcher.finish().unwrap();
                             let actual_result = Command::new(&new_path)

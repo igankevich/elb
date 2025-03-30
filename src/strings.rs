@@ -2,6 +2,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
+use crate::BlockRead;
+use crate::ByteOrder;
+use crate::Class;
 use crate::ElfRead;
 use crate::ElfWrite;
 use crate::Error;
@@ -108,6 +111,17 @@ impl From<Vec<u8>> for StringTable {
     }
 }
 
+impl BlockRead for StringTable {
+    fn read<R: ElfRead>(
+        reader: &mut R,
+        _class: Class,
+        _byte_order: ByteOrder,
+        len: u64,
+    ) -> Result<Self, Error> {
+        StringTable::read(reader, len)
+    }
+}
+
 impl AsRef<[u8]> for StringTable {
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()
@@ -143,9 +157,6 @@ mod tests {
     use arbtest::arbtest;
 
     use crate::test::test_block_io;
-    use crate::BlockIo;
-    use crate::ByteOrder;
-    use crate::Class;
 
     #[test]
     fn test_get_offset() {
@@ -205,26 +216,6 @@ mod tests {
     #[test]
     fn string_table_io() {
         test_block_io::<StringTable>();
-    }
-
-    impl BlockIo for StringTable {
-        fn read<R: ElfRead>(
-            reader: &mut R,
-            _class: Class,
-            _byte_order: ByteOrder,
-            len: u64,
-        ) -> Result<Self, Error> {
-            StringTable::read(reader, len)
-        }
-
-        fn write<W: ElfWrite>(
-            &self,
-            writer: &mut W,
-            _class: Class,
-            _byte_order: ByteOrder,
-        ) -> Result<(), Error> {
-            self.write(writer)
-        }
     }
 
     impl<'a> Arbitrary<'a> for StringTable {

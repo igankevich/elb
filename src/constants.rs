@@ -33,7 +33,6 @@ pub const INTERP_SECTION: &CStr = c".interp";
 pub const SHSTRTAB_SECTION: &CStr = c".shstrtab";
 pub const DYNSTR_SECTION: &CStr = c".dynstr";
 pub const DYNAMIC_SECTION: &CStr = c".dynamic";
-pub const SYMTAB_SECTION: &CStr = c".symtab";
 
 pub const INTERP_ALIGN: u64 = 1;
 pub const STRING_TABLE_ALIGN: u64 = 1;

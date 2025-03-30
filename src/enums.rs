@@ -345,3 +345,76 @@ impl SectionKind {
         self.as_number()
     }
 }
+
+/// Symbol visibility.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[cfg_attr(test, derive(arbitrary::Arbitrary))]
+#[repr(u8)]
+pub enum SymbolVisibility {
+    /// Default visibility.
+    Default = 0,
+    /// CPU-specific visibility.
+    Internal = 1,
+    /// The symbol is not available to other modules.
+    Hidden = 2,
+    /// The symbol is available to other modules
+    /// but local module always resolves to the local symbol.
+    Protected = 3,
+}
+
+impl SymbolVisibility {
+    /// Get visibility from symbol's `other` field.
+    pub const fn from_other(other: u8) -> Self {
+        match other & 3 {
+            0 => Self::Default,
+            1 => Self::Internal,
+            2 => Self::Hidden,
+            3 => Self::Protected,
+            _ => unreachable!(),
+        }
+    }
+}
+
+define_infallible_enum! {
+    "Symbol binding.",
+    SymbolBinding, u8,
+    (Local, 0, "Local symbol."),
+    (Global, 1, "Global symbol."),
+    (Weak, 2, "Weak symbol."),
+}
+
+impl SymbolBinding {
+    /// Convert from symbol's `info` field.
+    pub fn from_info(info: u8) -> Self {
+        Self::from(info >> 4)
+    }
+
+    /// Convert to the bits of the symbol's `info` field.
+    pub const fn to_info_bits(self) -> u8 {
+        self.as_number() << 4
+    }
+}
+
+define_infallible_enum! {
+    "Symbol type.",
+    SymbolKind, u8,
+    (NoType, 0, "Unspecified."),
+    (Object, 1, "Data object."),
+    (Function, 2, "Code object."),
+    (Section, 3, "Associated with a section."),
+    (File, 4, "File name."),
+    (Common, 5, "Common data object."),
+    (Tls, 6, "Thread-local data object."),
+}
+
+impl SymbolKind {
+    /// Convert from symbol's `info` field.
+    pub fn from_info(info: u8) -> Self {
+        Self::from(info & 0xf)
+    }
+
+    /// Convert to the bits of the symbol's `info` field.
+    pub const fn to_info_bits(self) -> u8 {
+        self.as_number() & 0xf
+    }
+}

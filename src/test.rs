@@ -4,7 +4,8 @@ use arbitrary::Unstructured;
 use arbtest::arbtest;
 use core::fmt::Debug;
 
-use crate::BlockIo;
+use crate::BlockRead;
+use crate::BlockWrite;
 use crate::ByteOrder;
 use crate::Class;
 use crate::EntityIo;
@@ -32,7 +33,7 @@ where
 
 pub fn test_block_io<T>()
 where
-    T: BlockIo + for<'a> ArbitraryWithClass<'a> + Debug + PartialEq + Eq,
+    T: BlockRead + BlockWrite + for<'a> ArbitraryWithClass<'a> + Debug + PartialEq + Eq,
 {
     arbtest(|u| {
         let byte_order: ByteOrder = u.arbitrary()?;

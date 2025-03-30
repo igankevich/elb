@@ -1,13 +1,13 @@
-use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ops::DerefMut;
 use core::ops::Range;
 
+use crate::check_u32;
 use crate::constants::*;
-use crate::validate_u32;
 use crate::zero;
-use crate::BlockIo;
+use crate::BlockRead;
+use crate::BlockWrite;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
@@ -29,7 +29,7 @@ pub struct SectionHeader {
     entries: Vec<Section>,
 }
 
-impl BlockIo for SectionHeader {
+impl BlockRead for SectionHeader {
     fn read<R: ElfRead>(
         reader: &mut R,
         class: Class,
@@ -45,7 +45,9 @@ impl BlockIo for SectionHeader {
         let ret = Self { entries };
         Ok(ret)
     }
+}
 
+impl BlockWrite for SectionHeader {
     fn write<W: ElfWrite>(
         &self,
         writer: &mut W,
@@ -61,7 +63,7 @@ impl BlockIo for SectionHeader {
 
 impl SectionHeader {
     /// Check sections.
-    pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
+    pub fn check(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
         if let Some(section) = self.entries.first() {
             if section.kind != SectionKind::Null {
                 return Err(Error::InvalidFirstSectionKind(section.kind));
@@ -70,9 +72,9 @@ impl SectionHeader {
         if (SECTION_RESERVED_MIN..=SECTION_RESERVED_MAX).contains(&self.entries.len()) {
             return Err(Error::TooManySections(self.entries.len()));
         }
-        self.validate_count()?;
+        self.check_count()?;
         for section in self.entries.iter() {
-            section.validate(header, program_header)?;
+            section.check(header, program_header)?;
         }
         Ok(())
     }
@@ -139,7 +141,7 @@ impl SectionHeader {
         }
     }
 
-    fn validate_count(&self) -> Result<(), Error> {
+    fn check_count(&self) -> Result<(), Error> {
         use SectionKind::*;
         for kind in [Hash, Dynamic] {
             if self
@@ -277,25 +279,27 @@ impl EntityIo for Section {
 }
 
 impl Section {
-    pub fn read_content<R: ElfRead + ElfSeek>(&self, reader: &mut R) -> Result<Vec<u8>, Error> {
+    /// Read section contents as bytes.
+    pub fn read_content<R: ElfRead + ElfSeek, T: BlockRead>(
+        &self,
+        reader: &mut R,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<T, Error> {
         reader.seek(self.offset)?;
-        let n: usize = self
-            .size
-            .try_into()
-            .map_err(|_| Error::TooBig("Section size"))?;
-        let mut buf = vec![0_u8; n];
-        reader.read_bytes(&mut buf[..])?;
-        Ok(buf)
+        T::read(reader, class, byte_order, self.size)
     }
 
-    pub fn write_out<W: ElfWrite + ElfSeek>(
+    /// Write section contents.
+    pub fn write_content<W: ElfWrite + ElfSeek, T: BlockWrite + ?Sized>(
         &self,
         writer: &mut W,
-        content: &[u8],
+        class: Class,
+        byte_order: ByteOrder,
+        content: &T,
     ) -> Result<(), Error> {
-        assert_eq!(self.size, content.len() as u64);
         writer.seek(self.offset)?;
-        writer.write_bytes(content)?;
+        content.write(writer, class, byte_order)?;
         Ok(())
     }
 
@@ -319,27 +323,28 @@ impl Section {
         start..end
     }
 
-    pub fn validate(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
+    /// Check consistency.
+    pub fn check(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
         if self.kind == SectionKind::Null {
             return Ok(());
         }
-        self.validate_overflow(header.class)?;
-        self.validate_align()?;
+        self.check_overflow(header.class)?;
+        self.check_align()?;
         if header.kind != FileKind::Relocatable {
-            self.validate_coverage(program_header)?;
+            self.check_coverage(program_header)?;
         }
         Ok(())
     }
 
-    fn validate_overflow(&self, class: Class) -> Result<(), Error> {
+    fn check_overflow(&self, class: Class) -> Result<(), Error> {
         match class {
             Class::Elf32 => {
-                validate_u32(self.flags.bits(), "Section flags")?;
-                validate_u32(self.virtual_address, "Section virtual address")?;
-                validate_u32(self.offset, "Section offset")?;
-                validate_u32(self.size, "Section size")?;
-                validate_u32(self.align, "Section align")?;
-                validate_u32(self.entry_len, "Section entry size")?;
+                check_u32(self.flags.bits(), "Section flags")?;
+                check_u32(self.virtual_address, "Section virtual address")?;
+                check_u32(self.offset, "Section offset")?;
+                check_u32(self.size, "Section size")?;
+                check_u32(self.align, "Section align")?;
+                check_u32(self.entry_len, "Section entry size")?;
             }
             Class::Elf64 => {
                 if self.offset.checked_add(self.size).is_none() {
@@ -353,7 +358,7 @@ impl Section {
         Ok(())
     }
 
-    fn validate_align(&self) -> Result<(), Error> {
+    fn check_align(&self) -> Result<(), Error> {
         match self.kind {
             SectionKind::NoBits => {
                 // BSS section is not stored in the file and has arbitrary offset.
@@ -371,7 +376,7 @@ impl Section {
         Ok(())
     }
 
-    fn validate_coverage(&self, program_header: &ProgramHeader) -> Result<(), Error> {
+    fn check_coverage(&self, program_header: &ProgramHeader) -> Result<(), Error> {
         // TODO this is quadratic
         let section_start = self.virtual_address;
         let section_end = section_start + self.size;

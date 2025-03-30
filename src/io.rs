@@ -1,3 +1,7 @@
+use alloc::vec;
+use alloc::vec::Vec;
+use core::ffi::CStr;
+
 use crate::ByteOrder;
 use crate::Class;
 use crate::Error;
@@ -203,10 +207,10 @@ pub trait EntityIo {
     ) -> Result<(), Error>;
 }
 
-/// Read a table from a file or write a table to a file.
+/// Read a block of data from a file.
 ///
-/// Usually a table occupies the whole section or segment.
-pub trait BlockIo {
+/// Usually a block occupies the whole section or segment.
+pub trait BlockRead {
     /// Read the table from the `reader`.
     fn read<R: ElfRead>(
         reader: &mut R,
@@ -216,7 +220,12 @@ pub trait BlockIo {
     ) -> Result<Self, Error>
     where
         Self: Sized;
+}
 
+/// Write a block of data to a file.
+///
+/// Usually a block occupies the whole section or segment.
+pub trait BlockWrite {
     /// Write the table to the `writer`.
     fn write<W: ElfWrite>(
         &self,
@@ -224,6 +233,44 @@ pub trait BlockIo {
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<(), Error>;
+}
+
+impl BlockRead for Vec<u8> {
+    fn read<R: ElfRead>(
+        reader: &mut R,
+        _class: Class,
+        _byte_order: ByteOrder,
+        len: u64,
+    ) -> Result<Self, Error> {
+        let n: usize = len.try_into().map_err(|_| Error::TooBig("Block size"))?;
+        let mut buf = vec![0_u8; n];
+        reader.read_bytes(&mut buf[..])?;
+        Ok(buf)
+    }
+}
+
+impl<T: AsRef<[u8]>> BlockWrite for T {
+    fn write<W: ElfWrite>(
+        &self,
+        writer: &mut W,
+        _class: Class,
+        _byte_order: ByteOrder,
+    ) -> Result<(), Error> {
+        writer.write_bytes(self.as_ref())?;
+        Ok(())
+    }
+}
+
+impl BlockWrite for CStr {
+    fn write<W: ElfWrite>(
+        &self,
+        writer: &mut W,
+        _class: Class,
+        _byte_order: ByteOrder,
+    ) -> Result<(), Error> {
+        writer.write_bytes(self.to_bytes_with_nul())?;
+        Ok(())
+    }
 }
 
 pub(crate) fn zero<W: ElfWrite + ElfSeek>(

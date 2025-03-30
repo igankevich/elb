@@ -34,12 +34,15 @@ bitflags = { version = "2.9.0", default-features = false, features = [] }
 log = { version = "0.4.26", default-features = false, features = [] }
 thiserror = { version = "2.0.12", default-features = false, features = [] }
 
-[lints.clippy]
+[lints]
+workspace = true
+
+[workspace.lints.clippy]
 unwrap_used = "deny"
 panic = "deny"
 
-[lints.rust]
-#missing_docs = "warn"
+[workspace.lints.rust]
+missing_docs = "warn"
 
 [profile.dev.package.sha2]
 opt-level = 3

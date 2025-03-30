@@ -1,4 +1,3 @@
-use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 use core::ops::Deref;
@@ -7,9 +6,10 @@ use core::ops::Range;
 
 use crate::align_down;
 use crate::align_up;
-use crate::validate_u32;
+use crate::check_u32;
 use crate::zero;
-use crate::BlockIo;
+use crate::BlockRead;
+use crate::BlockWrite;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
@@ -28,7 +28,7 @@ pub struct ProgramHeader {
     entries: Vec<Segment>,
 }
 
-impl BlockIo for ProgramHeader {
+impl BlockRead for ProgramHeader {
     fn read<R: ElfRead>(
         reader: &mut R,
         class: Class,
@@ -45,7 +45,9 @@ impl BlockIo for ProgramHeader {
         let ret = Self { entries };
         Ok(ret)
     }
+}
 
+impl BlockWrite for ProgramHeader {
     fn write<W: ElfWrite>(
         &self,
         writer: &mut W,
@@ -61,16 +63,16 @@ impl BlockIo for ProgramHeader {
 
 impl ProgramHeader {
     /// Check segments.
-    pub fn validate(&self, header: &Header, page_size: u64) -> Result<(), Error> {
+    pub fn check(&self, header: &Header, page_size: u64) -> Result<(), Error> {
         for segment in self.entries.iter() {
-            segment.validate(header.class)?;
+            segment.check(header.class)?;
         }
-        self.validate_sorted()?;
-        self.validate_overlap(page_size)?;
-        self.validate_entry_point(header.entry_point)?;
-        self.validate_count()?;
-        self.validate_order()?;
-        self.validate_phdr()?;
+        self.check_sorted()?;
+        self.check_overlap(page_size)?;
+        self.check_entry_point(header.entry_point)?;
+        self.check_count()?;
+        self.check_order()?;
+        self.check_phdr()?;
         Ok(())
     }
 
@@ -97,7 +99,7 @@ impl ProgramHeader {
         });
     }
 
-    fn validate_sorted(&self) -> Result<(), Error> {
+    fn check_sorted(&self) -> Result<(), Error> {
         let mut prev: Option<&Segment> = None;
         for segment in self.entries.iter() {
             if segment.kind != SegmentKind::Loadable {
@@ -115,7 +117,7 @@ impl ProgramHeader {
         Ok(())
     }
 
-    fn validate_overlap(&self, page_size: u64) -> Result<(), Error> {
+    fn check_overlap(&self, page_size: u64) -> Result<(), Error> {
         let filters = [
             |segment: &Segment, page_size: u64| {
                 if segment.kind != SegmentKind::Loadable {
@@ -162,7 +164,7 @@ impl ProgramHeader {
         Ok(())
     }
 
-    fn validate_entry_point(&self, entry_point: u64) -> Result<(), Error> {
+    fn check_entry_point(&self, entry_point: u64) -> Result<(), Error> {
         if entry_point != 0
             && !self.entries.iter().any(|segment| {
                 segment.kind == SegmentKind::Loadable
@@ -174,7 +176,7 @@ impl ProgramHeader {
         Ok(())
     }
 
-    fn validate_count(&self) -> Result<(), Error> {
+    fn check_count(&self) -> Result<(), Error> {
         use SegmentKind::*;
         for kind in [ProgramHeader, Interpreter] {
             if self
@@ -190,7 +192,7 @@ impl ProgramHeader {
         Ok(())
     }
 
-    fn validate_order(&self) -> Result<(), Error> {
+    fn check_order(&self) -> Result<(), Error> {
         use SegmentKind::*;
         let mut load_found = false;
         for segment in self.entries.iter() {
@@ -205,7 +207,7 @@ impl ProgramHeader {
         Ok(())
     }
 
-    fn validate_phdr(&self) -> Result<(), Error> {
+    fn check_phdr(&self) -> Result<(), Error> {
         let Some(phdr) = self
             .entries
             .iter()
@@ -380,25 +382,27 @@ impl EntityIo for Segment {
 }
 
 impl Segment {
-    pub fn read_content<R: ElfRead + ElfSeek>(&self, reader: &mut R) -> Result<Vec<u8>, Error> {
+    /// Read segment contents as bytes.
+    pub fn read_content<R: ElfRead + ElfSeek, T: BlockRead>(
+        &self,
+        reader: &mut R,
+        class: Class,
+        byte_order: ByteOrder,
+    ) -> Result<T, Error> {
         reader.seek(self.offset)?;
-        let n: usize = self
-            .file_size
-            .try_into()
-            .map_err(|_| Error::TooBig("in-file-size"))?;
-        let mut buf = vec![0_u8; n];
-        reader.read_bytes(&mut buf[..])?;
-        Ok(buf)
+        T::read(reader, class, byte_order, self.file_size)
     }
 
-    pub fn write_out<W: ElfWrite + ElfSeek>(
+    /// Write segment contents.
+    pub fn write_content<W: ElfWrite + ElfSeek, T: BlockWrite + ?Sized>(
         &self,
         writer: &mut W,
-        content: &[u8],
+        class: Class,
+        byte_order: ByteOrder,
+        content: &T,
     ) -> Result<(), Error> {
-        assert_eq!(self.file_size, content.len() as u64);
         writer.seek(self.offset)?;
-        writer.write_bytes(content)?;
+        content.write(writer, class, byte_order)?;
         Ok(())
     }
 
@@ -430,21 +434,21 @@ impl Segment {
     }
 
     /// Check segment.
-    pub fn validate(&self, class: Class) -> Result<(), Error> {
-        self.validate_overflow(class)?;
-        self.validate_align()?;
+    pub fn check(&self, class: Class) -> Result<(), Error> {
+        self.check_overflow(class)?;
+        self.check_align()?;
         Ok(())
     }
 
-    fn validate_overflow(&self, class: Class) -> Result<(), Error> {
+    fn check_overflow(&self, class: Class) -> Result<(), Error> {
         match class {
             Class::Elf32 => {
-                validate_u32(self.offset, "Segment offset")?;
-                validate_u32(self.virtual_address, "Segment virtual address")?;
-                validate_u32(self.physical_address, "Segment physical address")?;
-                validate_u32(self.file_size, "Segment in-file size")?;
-                validate_u32(self.memory_size, "Segment in-memory size")?;
-                validate_u32(self.align, "Segment align")?;
+                check_u32(self.offset, "Segment offset")?;
+                check_u32(self.virtual_address, "Segment virtual address")?;
+                check_u32(self.physical_address, "Segment physical address")?;
+                check_u32(self.file_size, "Segment in-file size")?;
+                check_u32(self.memory_size, "Segment in-memory size")?;
+                check_u32(self.align, "Segment align")?;
                 let offset = self.offset as u32;
                 let file_size = self.file_size as u32;
                 let virtual_address = self.virtual_address as u32;
@@ -476,7 +480,7 @@ impl Segment {
         Ok(())
     }
 
-    fn validate_align(&self) -> Result<(), Error> {
+    fn check_align(&self) -> Result<(), Error> {
         if !align_is_valid(self.align) {
             return Err(Error::InvalidAlign(self.align));
         }
