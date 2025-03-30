@@ -306,4 +306,8 @@ const NOT_WORKING: &[&str] = &[
     "cargo-deny",
     // no --version arg
     "FBReader",
+    // Hangs on Debian, returns 1 on Ubuntu:
+    // mtr-packet: Failure to open IPv4 sockets: Permission denied
+    // mtr-packet: Failure to open IPv6 sockets: Permission denied
+    "mtr-packet",
 ];
