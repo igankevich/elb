@@ -3,6 +3,7 @@ use core::cmp::Ordering;
 use core::ops::Deref;
 use core::ops::DerefMut;
 use core::ops::Range;
+use log::warn;
 
 use crate::align_down;
 use crate::align_up;
@@ -197,8 +198,13 @@ impl ProgramHeader {
         let mut load_found = false;
         for segment in self.entries.iter() {
             match segment.kind {
-                ProgramHeader | Interpreter if load_found => {
+                ProgramHeader if load_found => {
                     return Err(Error::NotPreceedingLoadSegment(segment.kind))
+                }
+                Interpreter if load_found => {
+                    // Some binaries don't respect this rule (I'm looking at you, python-3.12),
+                    // and dynamic loader is somehow okay with it.
+                    warn!("{}", Error::NotPreceedingLoadSegment(segment.kind));
                 }
                 Loadable => load_found = true,
                 _ => {}

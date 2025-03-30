@@ -26,7 +26,6 @@ arbitrary = { version = "1.4.1", features = ["derive"] }
 arbtest = "0.3.2"
 bitflags = { workspace = true, features = ["arbitrary"] }
 fs-err = "3.1.0"
-walkdir = "2.5.0"
 
 [workspace]
 members = [".", "cli", "dl"]

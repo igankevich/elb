@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 
+use fs_err::read_dir;
 use fs_err::File;
 use std::env::split_paths;
 use std::env::var_os;
@@ -7,23 +8,29 @@ use std::path::PathBuf;
 
 use elb::Elf;
 use elb::Error;
-use walkdir::WalkDir;
 
 #[test]
 fn read_elf_files_from_file_system() {
-    let mut paths: Vec<PathBuf> = Vec::new();
-    paths.extend(DEFAULT_PATH.iter().map(Into::into));
-    paths.extend(DEFAULT_LD_LIBRARY_PATH.iter().map(Into::into));
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    dirs.extend(DEFAULT_PATH.iter().map(Into::into));
+    dirs.extend(DEFAULT_LD_LIBRARY_PATH.iter().map(Into::into));
     for var_name in DEFAULT_ENV_VARS {
-        append_paths_from_env(var_name, &mut paths);
+        append_paths_from_env(var_name, &mut dirs);
     }
-    paths.sort_unstable();
-    paths.dedup();
-    for dir in paths.iter() {
-        if !dir.exists() || !dir.is_dir() {
+    dirs.sort_unstable();
+    dirs.dedup();
+    eprintln!("Library search directories: {:#?}", dirs);
+    let mut num_checked: usize = 0;
+    for path in dirs.iter() {
+        eprintln!("Entering {:?}", path);
+        if !path.exists() || !path.is_dir() {
             continue;
         }
-        for entry in WalkDir::new(dir).into_iter() {
+        let Ok(dir) = read_dir(path) else {
+            eprintln!("Failed to open directory {:?}", path);
+            continue;
+        };
+        for entry in dir {
             let Ok(entry) = entry else {
                 continue;
             };
@@ -31,10 +38,10 @@ fn read_elf_files_from_file_system() {
             if !path.is_file() {
                 continue;
             }
-            let Ok(mut file) = File::open(path) else {
+            let Ok(mut file) = File::open(&path) else {
+                eprintln!("Failed to open file {:?}", path);
                 continue;
             };
-            eprintln!("Reading {:?}", path);
             let elf = match Elf::read_unchecked(&mut file, PAGE_SIZE) {
                 Ok(elf) => elf,
                 Err(Error::NotElf) => continue,
@@ -45,8 +52,10 @@ fn read_elf_files_from_file_system() {
             if let Err(e) = elf.check() {
                 panic!("Failed to validate {:?}: {e}", path);
             }
+            num_checked += 1;
         }
     }
+    eprintln!("Checked {} file(s)", num_checked);
 }
 
 fn append_paths_from_env(var_name: &str, paths: &mut Vec<PathBuf>) {

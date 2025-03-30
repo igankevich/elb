@@ -220,7 +220,6 @@ dependencies = [
  "fs-err",
  "log",
  "thiserror",
- "walkdir",
 ]
 
 [[package]]
