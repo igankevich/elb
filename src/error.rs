@@ -56,8 +56,10 @@ pub enum Error {
     SegmentsNotSorted,
     #[error("Segment {0:?} should preceed any LOAD segment")]
     NotPreceedingLoadSegment(SegmentKind),
-    #[error("Only one {0:?} is allowed")]
+    #[error("Only one {0:?} segment is allowed")]
     MultipleSegments(SegmentKind),
+    #[error("Only one {0:?} section is allowed")]
+    MultipleSections(SectionKind),
     #[error("Overflow: {0}")]
     TooBig(&'static str),
     #[error("Word overflow: {0}")]
@@ -75,6 +77,8 @@ pub enum Error {
     #[error("Input/output error: {0}")]
     #[cfg(feature = "std")]
     Io(std::io::Error),
+    #[error("Invalid C-string")]
+    CStr,
     #[error("Unexpected EOF")]
     UnexpectedEof,
 }
@@ -98,6 +102,12 @@ impl From<std::io::ErrorKind> for Error {
         } else {
             Self::Io(other.into())
         }
+    }
+}
+
+impl From<alloc::ffi::FromVecWithNulError> for Error {
+    fn from(_other: alloc::ffi::FromVecWithNulError) -> Self {
+        Self::CStr
     }
 }
 

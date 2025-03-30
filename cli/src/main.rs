@@ -473,7 +473,7 @@ fn patch(common: CommonArgs, args: PatchArgs) -> Result<(), Box<dyn std::error::
         changed = true;
     }
     for entry in args.remove_dynamic.into_iter() {
-        patcher.remove_dynamic(entry.into())?;
+        patcher.remove_dynamic_tag(entry.into())?;
         changed = true;
     }
     for pair in args.set_dynamic.into_iter() {

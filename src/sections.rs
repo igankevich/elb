@@ -70,6 +70,7 @@ impl SectionHeader {
         if (SECTION_RESERVED_MIN..=SECTION_RESERVED_MAX).contains(&self.entries.len()) {
             return Err(Error::TooManySections(self.entries.len()));
         }
+        self.validate_count()?;
         for section in self.entries.iter() {
             section.validate(header, program_header)?;
         }
@@ -136,6 +137,22 @@ impl SectionHeader {
         if self.entries.is_empty() {
             self.entries.push(Section::null());
         }
+    }
+
+    fn validate_count(&self) -> Result<(), Error> {
+        use SectionKind::*;
+        for kind in [Hash, Dynamic] {
+            if self
+                .entries
+                .iter()
+                .filter(|section| section.kind == kind)
+                .count()
+                > 1
+            {
+                return Err(Error::MultipleSections(kind));
+            }
+        }
+        Ok(())
     }
 }
 

@@ -98,6 +98,11 @@ impl DynamicTable {
             }
         }
     }
+
+    pub fn get(&self, tag: DynamicTag) -> Option<u64> {
+        self.iter()
+            .find_map(|(kind, value)| (*kind == tag).then_some(*value))
+    }
 }
 
 impl Deref for DynamicTable {

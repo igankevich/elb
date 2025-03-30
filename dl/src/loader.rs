@@ -44,7 +44,7 @@ impl DynamicLoader {
         let elf = Elf::read(&mut file, self.page_size)?;
         let mut patcher = ElfPatcher::new(elf, file);
         let dynstr_table = patcher.read_dynamic_string_table()?;
-        let dynamic_table = patcher.read_dynamic_table()?;
+        let dynamic_table = patcher.read_dynamic_table()?.unwrap_or_default();
         let interpreter = patcher
             .read_interpreter()?
             .map(|c_str| PathBuf::from(OsStr::from_bytes(c_str.to_bytes())));
@@ -206,8 +206,9 @@ mod tests {
         paths.sort_unstable();
         paths.dedup();
         let loader = DynamicLoader::new(4096, {
-            let mut dirs = ld_so::get_search_dirs("/").unwrap();
+            let mut dirs = Vec::new();
             dirs.extend(ld_so::get_hard_coded_search_dirs(None).unwrap());
+            dirs.extend(ld_so::get_search_dirs("/").unwrap());
             dirs
         });
         let mut visited = HashSet::new();
@@ -260,10 +261,7 @@ mod tests {
                         let Ok(Some(_)) = patcher.read_interpreter() else {
                             continue;
                         };
-                        let section_names =
-                            patcher.read_section_names().unwrap().unwrap_or_default();
-                        let Ok(Some(data)) = patcher.read_section(c".rodata", &section_names)
-                        else {
+                        let Ok(Some(data)) = patcher.read_section(c".rodata") else {
                             continue;
                         };
                         let mut working_arg = None;
@@ -314,7 +312,8 @@ mod tests {
                                     .open(&new_file)
                                     .unwrap();
                                 let mut patcher = ElfPatcher::new(elf, file);
-                                let dynamic_table = patcher.read_dynamic_table().unwrap();
+                                let dynamic_table =
+                                    patcher.read_dynamic_table().unwrap().unwrap_or_default();
                                 if !dynamic_table
                                     .iter()
                                     .any(|(tag, _)| *tag == DynamicTag::Needed)
@@ -389,7 +388,7 @@ mod tests {
                                 bytes.push(0_u8);
                                 CString::from_vec_with_nul(bytes).unwrap()
                             };
-                            patcher.remove_dynamic(DynamicTag::Runpath).unwrap();
+                            patcher.remove_dynamic_tag(DynamicTag::Runpath).unwrap();
                             patcher
                                 .set_dynamic_c_str(DynamicTag::Rpath, &run_path)
                                 .unwrap();
