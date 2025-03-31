@@ -28,6 +28,7 @@ use tempfile::TempDir;
 
 use elb::DynamicTag;
 use elb_dl::glibc;
+use elb_dl::DependencyTree;
 use elb_dl::DynamicLoader;
 use elb_dl::Error;
 
@@ -105,9 +106,12 @@ fn loader_resolves_system_files() {
             {
                 continue;
             }
-            match loader.resolve_dependencies(&path) {
-                Ok((elf, dependencies)) => {
-                    let file = File::open(&path).unwrap();
+            // TODO recursion
+            let mut tree = DependencyTree::new();
+            match loader.resolve_dependencies(&path, &mut tree) {
+                Ok(dependencies) => {
+                    let mut file = File::open(&path).unwrap();
+                    let elf = Elf::read(&mut file, 4096).unwrap();
                     let mut patcher = ElfPatcher::new(elf, file);
                     let Ok(Some(_)) = patcher.read_interpreter() else {
                         continue;
@@ -157,12 +161,13 @@ fn loader_resolves_system_files() {
                             fs_err::copy(&dep_file, &new_file).unwrap();
                             fs_err::set_permissions(&new_file, Permissions::from_mode(0o755))
                                 .unwrap();
-                            let (elf, deps) = loader.resolve_dependencies(&dep_file).unwrap();
-                            let file = OpenOptions::new()
+                            let deps = loader.resolve_dependencies(&dep_file, &mut tree).unwrap();
+                            let mut file = OpenOptions::new()
                                 .read(true)
                                 .write(true)
                                 .open(&new_file)
                                 .unwrap();
+                            let elf = Elf::read(&mut file, 4096).unwrap();
                             let mut patcher = ElfPatcher::new(elf, file);
                             let dynamic_table =
                                 patcher.read_dynamic_table().unwrap().unwrap_or_default();
@@ -252,13 +257,7 @@ fn loader_resolves_system_files() {
                         if expected != actual {
                             let workdir = workdir.to_path_buf();
                             std::mem::forget(tmpdir);
-
-                            panic!(
-                                    "Expected {expected:?}, actual {actual:?}, command {:?} {:?}, files {:?}",
-                                    path,
-                                    arg,
-                                    workdir
-                                );
+                            panic!("Expected {expected:?}, actual {actual:?}, command {:?} {:?}, files {:?}", path, arg, workdir);
                         }
                         eprintln!("SUCCESS {:?}", path);
                         num_checked += 1;
@@ -325,8 +324,6 @@ const NOT_WORKING: &[&str] = &[
     // mtr-packet: Failure to open IPv4 sockets: Permission denied
     // mtr-packet: Failure to open IPv6 sockets: Permission denied
     "mtr-packet",
-    // TODO something with RPATH, RUNPATH
-    "systemd-analyze",
     // A JSON parsing exception occurred in [/tmp/elb-test-2rconN/bicep.runtimeconfig.json], offset
     // 0 (line 1, column 1): Invalid value.
     "bicep",

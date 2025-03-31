@@ -44,24 +44,24 @@ $ elb-cli show -t all /bin/sh
 ### Show dependencies
 
 ```sh
-$ elb-cli deps -f list --hard-coded-search-dirs /bin/ls
-/gnu/store/d69awcc5wahh71amx0dmgaimsdvvp2bg-gcc-11.4.0-lib/lib/libgcc_s.so.1
-/gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/ld-linux-x86-64.so.2
-/gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/libc.so.6
-/gnu/store/xjcr0zckc84xg03blss8lrm21hhlm4a6-libcap-2.64/lib/libcap.so.2.64
+$ elb-cli deps -f list --hard-coded-search-dirs --names-only /bin/ls
+libgcc_s.so.1
+ld-linux-x86-64.so.2
+libc.so.6
+libcap.so.2.64
 
-$ elb-cli deps -f tree --hard-coded-search-dirs /bin/ls
-/run/current-system/profile/bin/ls
- ├── /gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/ld-linux-x86-64.so.2
- ├── /gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/libc.so.6
- │   ╰── /gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/ld-linux-x86-64.so.2
- ╰── /gnu/store/xjcr0zckc84xg03blss8lrm21hhlm4a6-libcap-2.64/lib/libcap.so.2.64
-     ├── /gnu/store/d69awcc5wahh71amx0dmgaimsdvvp2bg-gcc-11.4.0-lib/lib/libgcc_s.so.1
-     │   ╰── /gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/libc.so.6
-     │       ╰── /gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/ld-linux-x86-64.so.2
-     ├── /gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/ld-linux-x86-64.so.2
-     ╰── /gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/libc.so.6
-         ╰── /gnu/store/hw6g2kjayxnqi8rwpnmpraalxi0djkxc-glibc-2.39/lib/ld-linux-x86-64.so.2
+$ elb-cli deps -f tree --hard-coded-search-dirs --names-only /bin/ls
+ls
+ ├── libcap.so.2.64
+ │   ├── libgcc_s.so.1
+ │   │   ╰── libc.so.6
+ │   │       ╰── ld-linux-x86-64.so.2
+ │   ├── libc.so.6
+ │   │   ╰── ld-linux-x86-64.so.2
+ │   ╰── ld-linux-x86-64.so.2
+ ├── libc.so.6
+ │   ╰── ld-linux-x86-64.so.2
+ ╰── ld-linux-x86-64.so.2
 ```
 
 
