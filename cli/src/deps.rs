@@ -71,25 +71,32 @@ pub struct DepsArgs {
 pub fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
     let search_dirs = {
         let mut search_dirs = Vec::new();
-        match args.libc {
-            Libc::Glibc => {
-                search_dirs.extend(glibc::get_search_dirs(&args.root)?);
-                if args.hard_coded_search_dirs {
-                    let ld_so = if args.root == Path::new("/") {
-                        None
-                    } else {
-                        Some(Command::new(args.root.join("bin/ls")))
-                    };
-                    search_dirs.extend(glibc::get_hard_coded_search_dirs(ld_so)?);
+        if let Some(path) = args.search_dirs.as_ref() {
+            // Custom library search directories.
+            search_dirs.extend(split_paths(path));
+        } else {
+            // Add directories from the environment.
+            if let Some(path) = std::env::var_os("LD_LIBRARY_PATH") {
+                search_dirs.extend(split_paths(&path));
+            }
+            // Add system directories.
+            match args.libc {
+                Libc::Glibc => {
+                    search_dirs.extend(glibc::get_search_dirs(&args.root)?);
+                    if args.hard_coded_search_dirs {
+                        let ld_so = if args.root == Path::new("/") {
+                            None
+                        } else {
+                            Some(Command::new(args.root.join("bin/ls")))
+                        };
+                        search_dirs.extend(glibc::get_hard_coded_search_dirs(ld_so)?);
+                    }
+                }
+                Libc::Musl => {
+                    let arch = args.arch.as_deref().unwrap_or(std::env::consts::ARCH);
+                    search_dirs.extend(musl::get_search_dirs(&args.root, arch)?);
                 }
             }
-            Libc::Musl => {
-                let arch = args.arch.as_deref().unwrap_or(std::env::consts::ARCH);
-                search_dirs.extend(musl::get_search_dirs(&args.root, arch)?);
-            }
-        }
-        if let Some(path) = args.search_dirs.as_ref() {
-            search_dirs.extend(split_paths(path));
         }
         search_dirs
     };

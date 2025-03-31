@@ -252,13 +252,7 @@ fn loader_resolves_system_files() {
                         if expected != actual {
                             let workdir = workdir.to_path_buf();
                             std::mem::forget(tmpdir);
-
-                            panic!(
-                                    "Expected {expected:?}, actual {actual:?}, command {:?} {:?}, files {:?}",
-                                    path,
-                                    arg,
-                                    workdir
-                                );
+                            panic!("Expected {expected:?}, actual {actual:?}, command {:?} {:?}, files {:?}", path, arg, workdir);
                         }
                         eprintln!("SUCCESS {:?}", path);
                         num_checked += 1;
