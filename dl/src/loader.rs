@@ -37,25 +37,25 @@ impl DependencyTree {
         }
     }
 
-    /// Check if the tree contains the dependent specified by its canonical path.
-    pub fn contains<P>(&self, canonical_path: &P) -> bool
+    /// Check if the tree contains the dependent specified by its path.
+    pub fn contains<P>(&self, path: &P) -> bool
     where
         PathBuf: Borrow<P>,
         P: Ord + ?Sized,
     {
         self.dependencies
-            .binary_search_by(|(dependent, _)| dependent.borrow().cmp(canonical_path))
+            .binary_search_by(|(dependent, _)| dependent.borrow().cmp(path))
             .is_ok()
     }
 
-    /// Get dependencies by canonical path of the dependent.
-    pub fn get<P>(&self, canonical_path: &P) -> Option<&[PathBuf]>
+    /// Get dependencies by path of the dependent.
+    pub fn get<P>(&self, path: &P) -> Option<&[PathBuf]>
     where
         PathBuf: Borrow<P>,
         P: Ord + ?Sized,
     {
         self.dependencies
-            .binary_search_by(|(dependent, _)| dependent.borrow().cmp(canonical_path))
+            .binary_search_by(|(dependent, _)| dependent.borrow().cmp(path))
             .ok()
             .map(|i| self.dependencies[i].1.as_slice())
     }
@@ -81,13 +81,13 @@ impl DependencyTree {
     }
 
     /// Remove the dependent and its dependencies from the tree.
-    pub fn remove<P>(&mut self, canonical_path: &P) -> Option<Vec<PathBuf>>
+    pub fn remove<P>(&mut self, path: &P) -> Option<Vec<PathBuf>>
     where
         PathBuf: Borrow<P>,
         P: Ord + ?Sized,
     {
         self.dependencies
-            .binary_search_by(|(dependent, _)| dependent.borrow().cmp(canonical_path))
+            .binary_search_by(|(dependent, _)| dependent.borrow().cmp(path))
             .ok()
             .map(|i| self.dependencies.remove(i).1)
     }

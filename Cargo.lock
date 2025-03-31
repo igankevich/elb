@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "elb"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arbitrary",
  "arbtest",
@@ -224,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "elb-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "colored",
@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "elb-dl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base32",
  "elb",
