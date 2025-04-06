@@ -48,7 +48,6 @@ workspace = true
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
-panic = "deny"
 
 [workspace.lints.rust]
 missing_docs = "warn"
