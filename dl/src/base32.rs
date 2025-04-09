@@ -81,12 +81,14 @@ pub fn encode_into(input: &[u8], output: &mut [u8]) {
     output[i + 6] = CHARS[((d >> 6) | ((e & 0b111) << 2)) as usize]; // 2 + 3 bits
 }
 
-#[must_use]
-pub fn decode_into(input: &[u8], output: &mut [u8]) -> usize {
+pub fn decode_into(input: &[u8], output: &mut [u8]) -> Result<usize, DecodeError> {
     let input_len = input.len();
     let output_len = output.len();
     if max_decoded_len(input_len) > output.len() {
-        panic!("Output slice is too small");
+        return Err(DecodeError::OutputTooSmall);
+    }
+    if input.iter().any(|b| !CHARS.contains(b)) {
+        return Err(DecodeError::InvalidChar);
     }
     let aligned_input_len = input_len / 8 * 8;
     let aligned_output_len = output_len / 5 * 5;
@@ -109,7 +111,7 @@ pub fn decode_into(input: &[u8], output: &mut [u8]) -> usize {
     }
     let remaining = input_len - aligned_input_len;
     if remaining == 0 {
-        return output_len;
+        return Ok(output_len);
     }
     let i = aligned_output_len;
     let j = aligned_input_len;
@@ -117,27 +119,33 @@ pub fn decode_into(input: &[u8], output: &mut [u8]) -> usize {
     let b = input.get(j + 1).copied().map(char_index).unwrap_or(0);
     output[i] = a | ((b & 0b111) << 5); // 5 + 3 bits
     if remaining == 1 {
-        return i + 1;
+        return Ok(i + 1);
     }
     let c = input.get(j + 2).copied().map(char_index).unwrap_or(0);
     let d = input.get(j + 3).copied().map(char_index).unwrap_or(0);
     output[i + 1] = (b >> 3) | (c << 2) | ((d & 0b1) << 7); // 2 + 5 + 1 bits
     if remaining == 2 || remaining == 3 {
-        return if output[i + 1] == 0 { i + 1 } else { i + 2 };
+        return Ok(if output[i + 1] == 0 { i + 1 } else { i + 2 });
     }
     let e = input.get(j + 4).copied().map(char_index).unwrap_or(0);
     output[i + 2] = (d >> 1) | ((e & 0b1111) << 4); // 4 + 4 bits
     if remaining == 4 {
-        return if output[i + 2] == 0 { i + 2 } else { i + 3 };
+        return Ok(if output[i + 2] == 0 { i + 2 } else { i + 3 });
     }
     let f = input.get(j + 5).copied().map(char_index).unwrap_or(0);
     let g = input.get(j + 6).copied().map(char_index).unwrap_or(0);
     output[i + 3] = (e >> 4) | (f << 1) | ((g & 0b11) << 6); // 1 + 5 + 2 bits
     if output[i + 3] == 0 {
-        i + 3
+        Ok(i + 3)
     } else {
-        i + 4
+        Ok(i + 4)
     }
+}
+
+#[derive(Debug)]
+pub enum DecodeError {
+    OutputTooSmall,
+    InvalidChar,
 }
 
 const fn char_index(ch: u8) -> u8 {
@@ -160,7 +168,7 @@ const INDICES: [[u8; 26]; 2] = [
     ],
 ];
 
-const NA: u8 = b'_';
+const NA: u8 = 32;
 
 #[cfg(test)]
 mod tests {
@@ -202,7 +210,7 @@ mod tests {
         encode_into(&input, &mut output[..]);
         eprintln!("{}", std::str::from_utf8(&output[..]).unwrap());
         let mut decoded = [b'_'; 5];
-        let len = decode_into(&output, &mut decoded);
+        let len = decode_into(&output, &mut decoded).unwrap();
         assert_eq!(5, len);
         assert_eq!(input, decoded);
         eprintln!("{}", std::str::from_utf8(&decoded[..]).unwrap());
@@ -225,7 +233,7 @@ mod tests {
                 std::str::from_utf8(&encoded)
             );
             let mut decoded = vec![0_u8; max_decoded_len(encoded.len())];
-            let len = decode_into(&encoded, &mut decoded);
+            let len = decode_into(&encoded, &mut decoded).unwrap();
             assert_eq!(input_len, len);
             assert_eq!(input, decoded);
             Ok(())
@@ -249,7 +257,7 @@ mod tests {
                 std::str::from_utf8(&encoded)
             );
             let mut decoded = vec![0_u8; max_decoded_len(encoded.len())];
-            let len = decode_into(&encoded, &mut decoded);
+            let len = decode_into(&encoded, &mut decoded).unwrap();
             let decoded = &decoded[..len];
             assert_eq!(input, decoded);
             Ok(())
@@ -269,9 +277,23 @@ mod tests {
                 std::str::from_utf8(&encoded)
             );
             let mut decoded = vec![0_u8; max_decoded_len(encoded.len())];
-            let len = decode_into(&encoded, &mut decoded);
+            let len = decode_into(&encoded, &mut decoded).unwrap();
             let decoded = &decoded[..len];
             assert_eq!(input, decoded);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_decode() {
+        arbtest(|u| {
+            let input_len: usize = u.arbitrary_len::<u8>()?;
+            let mut input = Vec::with_capacity(input_len);
+            for _ in 0..input_len {
+                input.push(*u.choose(&CHARS)?);
+            }
+            let mut decoded = vec![0_u8; max_decoded_len(input.len())];
+            let _len = decode_into(&input, &mut decoded).unwrap();
             Ok(())
         });
     }
