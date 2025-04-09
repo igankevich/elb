@@ -101,6 +101,11 @@ impl DependencyTree {
     pub fn is_empty(&self) -> bool {
         self.dependencies.is_empty()
     }
+
+    /// Get iterator over elements.
+    pub fn iter(&self) -> std::slice::Iter<(PathBuf, Vec<PathBuf>)> {
+        self.dependencies.iter()
+    }
 }
 
 impl Default for DependencyTree {
@@ -263,7 +268,7 @@ pub struct DynamicLoader {
     search_dirs_override: Vec<PathBuf>,
     lib: Option<OsString>,
     platform: Option<OsString>,
-    page_size: u64,
+    pub(crate) page_size: u64,
     libc: Libc,
 }
 

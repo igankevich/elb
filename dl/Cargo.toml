@@ -19,17 +19,17 @@ musl = []
 fs-err = ["dep:fs-err"]
 
 [dependencies]
-elb = { path = "..", version = "0.2.0" }
+elb = { path = "..", version = "0.3.0" }
 fs-err = { version = "3.1.0", optional = true }
 glob = { version = "0.3.2", optional = true }
 log.workspace = true
+sha2 = "0.10.8"
 thiserror.workspace = true
 
 [dev-dependencies]
 arbtest = "0.3.2"
 base32 = "0.5.1"
 env_logger = "0.11.6"
-sha2 = "0.10.8"
 tempfile = "3.18.0"
 
 [lints]

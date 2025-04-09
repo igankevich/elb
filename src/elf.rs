@@ -161,6 +161,7 @@ impl Elf {
         names: &StringTable,
         file: &mut F,
     ) -> Result<Option<CString>, Error> {
+        // TODO is this how binfmt_misc reads interpreter?
         let Some(interp) = self.read_section(INTERP_SECTION, names, file)? else {
             return Ok(None);
         };

@@ -1,4 +1,5 @@
 #![allow(missing_docs)]
+#![allow(unused)]
 
 pub const MAX_INPUT_LEN: usize = usize::MAX / 8 * 5 + 4;
 

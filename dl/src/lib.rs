@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-mod base32;
+pub(crate) mod base32;
 mod error;
 mod loader;
 mod relocator;
@@ -17,7 +17,6 @@ pub(crate) use fs_err as fs;
 #[cfg(not(feature = "fs-err"))]
 pub(crate) use std::fs;
 
-pub use self::base32::*;
 pub use self::error::*;
 pub use self::loader::*;
 pub use self::relocator::*;
