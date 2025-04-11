@@ -25,14 +25,14 @@ thiserror.workspace = true
 arbitrary = { version = "1.4.1", features = ["derive"] }
 arbtest = "0.3.2"
 bitflags = { workspace = true, features = ["arbitrary"] }
-fs-err = "3.1.0"
+fs-err.workspace = true
 
 [workspace]
 members = [".", "cli", "dl"]
 default-members = [".", "cli", "dl"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/igankevich/elb"
@@ -40,7 +40,8 @@ repository = "https://github.com/igankevich/elb"
 
 [workspace.dependencies]
 bitflags = { version = "2.9.0", default-features = false, features = [] }
-log = { version = "0.4.26", default-features = false, features = [] }
+fs-err = "3.1.0"
+log = { version = "0.4.27", default-features = false, features = [] }
 thiserror = { version = "2.0.12", default-features = false, features = [] }
 
 [lints]
@@ -48,13 +49,9 @@ workspace = true
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
-panic = "deny"
 
 [workspace.lints.rust]
 missing_docs = "warn"
 
-[profile.test.package.sha2]
-opt-level = 3
-
-[profile.test.package.base32]
+[profile.test.package.blake2b_simd]
 opt-level = 3

@@ -1,7 +1,10 @@
 #![doc = include_str!("../README.md")]
 
+pub(crate) mod base32;
 mod error;
 mod loader;
+#[cfg(feature = "relocate")]
+mod relocate;
 
 /// Functionality specific to GNU libc's implementation of the dynamic loader.
 #[cfg(feature = "glibc")]
@@ -17,3 +20,5 @@ pub(crate) use std::fs;
 
 pub use self::error::*;
 pub use self::loader::*;
+#[cfg(feature = "relocate")]
+pub use self::relocate::*;

@@ -14,7 +14,7 @@ use elb_dl::DynamicLoader;
 use crate::CommonArgs;
 
 #[derive(clap::Args)]
-pub struct DepsArgs {
+pub struct LoaderArgs {
     /// File system root.
     #[clap(short = 'r', long = "root", value_name = "DIR", default_value = "/")]
     root: PathBuf,
@@ -29,11 +29,74 @@ pub struct DepsArgs {
     #[clap(short = 'L', long = "search-dirs", value_name = "DIR1:DIR2:...")]
     search_dirs: Option<PathBuf>,
 
-    /// Use `ld.so --list-diagnostics` to figure out hard-coded library search directoris.
+    /// Use `ld.so --list-diagnostics` to figure out hard-coded library search directories.
     ///
     /// Useful on Guix and Nix.
     #[clap(action, long = "hard-coded-search-dirs")]
     hard_coded_search_dirs: bool,
+
+    /// Which libc implementation to emulate.
+    ///
+    /// This affects default library search paths and library search order.
+    #[clap(
+        short = 'l',
+        long = "libc",
+        value_name = "LIBC",
+        default_value = "glibc"
+    )]
+    libc: Libc,
+}
+
+impl LoaderArgs {
+    fn search_dirs(&self) -> Result<Vec<PathBuf>, elb_dl::Error> {
+        let mut search_dirs = Vec::new();
+        if let Some(path) = self.search_dirs.as_ref() {
+            // Custom library search directories.
+            search_dirs.extend(split_paths(path));
+        } else {
+            // Add system directories.
+            match self.libc {
+                Libc::Glibc => {
+                    search_dirs.extend(glibc::get_search_dirs(&self.root)?);
+                    if self.hard_coded_search_dirs {
+                        let ld_so = if self.root == Path::new("/") {
+                            None
+                        } else {
+                            Some(Command::new(self.root.join("bin/ld.so")))
+                        };
+                        search_dirs.extend(glibc::get_hard_coded_search_dirs(ld_so)?);
+                    }
+                }
+                Libc::Musl => {
+                    let arch = self.arch.as_deref().unwrap_or(std::env::consts::ARCH);
+                    search_dirs.extend(musl::get_search_dirs(&self.root, arch)?);
+                }
+            }
+        }
+        Ok(search_dirs)
+    }
+
+    pub fn new_loader(self, page_size: u64) -> Result<DynamicLoader, elb_dl::Error> {
+        let search_dirs = self.search_dirs()?;
+        let loader = DynamicLoader::options()
+            .libc(self.libc.into())
+            .page_size(page_size)
+            .search_dirs_override(
+                std::env::var_os("LD_LIBRARY_PATH")
+                    .map(|path| split_paths(&path).collect())
+                    .unwrap_or_default(),
+            )
+            .search_dirs(search_dirs)
+            .platform(self.arch.map(|x| x.into()))
+            .new_loader();
+        Ok(loader)
+    }
+}
+
+#[derive(clap::Args)]
+pub struct DepsArgs {
+    #[clap(flatten)]
+    loader: LoaderArgs,
 
     /// Tree visual style.
     #[clap(
@@ -57,58 +120,13 @@ pub struct DepsArgs {
     #[clap(action, short = 'n', long = "names-only")]
     names_only: bool,
 
-    /// Which libc implementation to emulate.
-    #[clap(
-        short = 'l',
-        long = "libc",
-        value_name = "LIBC",
-        default_value = "glibc"
-    )]
-    libc: Libc,
-
     /// ELF file(s).
     #[clap(value_name = "FILE...")]
     files: Vec<PathBuf>,
 }
 
 pub fn deps(common: CommonArgs, args: DepsArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let search_dirs = {
-        let mut search_dirs = Vec::new();
-        if let Some(path) = args.search_dirs.as_ref() {
-            // Custom library search directories.
-            search_dirs.extend(split_paths(path));
-        } else {
-            // Add system directories.
-            match args.libc {
-                Libc::Glibc => {
-                    search_dirs.extend(glibc::get_search_dirs(&args.root)?);
-                    if args.hard_coded_search_dirs {
-                        let ld_so = if args.root == Path::new("/") {
-                            None
-                        } else {
-                            Some(Command::new(args.root.join("bin/ld.so")))
-                        };
-                        search_dirs.extend(glibc::get_hard_coded_search_dirs(ld_so)?);
-                    }
-                }
-                Libc::Musl => {
-                    let arch = args.arch.as_deref().unwrap_or(std::env::consts::ARCH);
-                    search_dirs.extend(musl::get_search_dirs(&args.root, arch)?);
-                }
-            }
-        }
-        search_dirs
-    };
-    let loader = DynamicLoader::options()
-        .page_size(common.page_size)
-        .search_dirs_override(
-            std::env::var_os("LD_LIBRARY_PATH")
-                .map(|path| split_paths(&path).collect())
-                .unwrap_or_default(),
-        )
-        .search_dirs(search_dirs)
-        .platform(args.arch.map(|x| x.into()))
-        .new_loader();
+    let loader = args.loader.new_loader(common.page_size)?;
     let mut tree = DependencyTree::new();
     let mut queue = VecDeque::new();
     queue.extend(args.files.iter().cloned());
@@ -214,9 +232,18 @@ fn print_tree<W: Write>(
 }
 
 #[derive(clap::ValueEnum, Clone, Copy)]
-enum Libc {
+pub enum Libc {
     Glibc,
     Musl,
+}
+
+impl From<Libc> for elb_dl::Libc {
+    fn from(other: Libc) -> Self {
+        match other {
+            Libc::Glibc => Self::Glibc,
+            Libc::Musl => Self::Musl,
+        }
+    }
 }
 
 #[derive(clap::ValueEnum, Clone, Copy)]

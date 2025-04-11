@@ -14,13 +14,14 @@ Based on [`elb`](https://docs.rs/elb) crate.
 ### Resolve immediate dependencies
 
 ```rust
-use elb_dl::{DynamicLoader, Error, glibc};
+use elb_dl::{DependencyTree, DynamicLoader, Error, glibc};
 
 fn resolve_immediate() -> Result<(), Error> {
     let loader = DynamicLoader::options()
         .search_dirs(glibc::get_search_dirs("/")?)
         .new_loader();
-    let (_elf, deps) = loader.resolve_dependencies("/bin/sh")?;
+    let mut tree = DependencyTree::new();
+    let deps = loader.resolve_dependencies("/bin/sh", &mut tree)?;
     for path in deps.iter() {
         eprintln!("{:?}", path);
     }
@@ -32,7 +33,7 @@ fn resolve_immediate() -> Result<(), Error> {
 ### Resolve dependencies recursively
 
 ```rust
-use elb_dl::{DynamicLoader, Error, glibc};
+use elb_dl::{DependencyTree, DynamicLoader, Error, glibc};
 use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 
@@ -40,21 +41,16 @@ fn resolve_all() -> Result<(), Error> {
     let loader = DynamicLoader::options()
         .search_dirs(glibc::get_search_dirs("/")?)
         .new_loader();
-    let mut all_deps = BTreeSet::new();
+    let mut tree = DependencyTree::new();
     let mut queue = VecDeque::new();
     queue.push_back(Path::new("/bin/sh").to_path_buf());
     while let Some(path) = queue.pop_front() {
-        let (_elf, deps) = loader.resolve_dependencies(&path)?;
-        for path in deps.into_iter() {
-            if all_deps.insert(path.clone()) {
-                // Recurse into previously unseen dependency.
-                queue.push_back(path);
-            }
-        }
+        let deps = loader.resolve_dependencies(&path, &mut tree)?;
+        queue.extend(deps);
     }
-    // Print deduplicated and ordered list of depedencies.
-    for path in all_deps.iter() {
-        eprintln!("{:?}", path);
+    // Print dependency table.
+    for (dependent, dependencies) in tree.iter() {
+        eprintln!("{dependent:?} => {dependencies:?}");
     }
     Ok(())
 }

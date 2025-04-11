@@ -14,6 +14,7 @@ use crate::Header;
 use crate::ProgramHeader;
 use crate::SectionHeader;
 use crate::SectionKind;
+use crate::SegmentKind;
 use crate::StringTable;
 
 /// ELF file.
@@ -158,12 +159,17 @@ impl Elf {
     /// Read the interpreter.
     pub fn read_interpreter<F: ElfRead + ElfSeek>(
         &self,
-        names: &StringTable,
         file: &mut F,
     ) -> Result<Option<CString>, Error> {
-        let Some(interp) = self.read_section(INTERP_SECTION, names, file)? else {
+        let Some(i) = self
+            .segments
+            .iter()
+            .position(|segment| segment.kind == SegmentKind::Interpreter)
+        else {
             return Ok(None);
         };
+        let interp =
+            self.segments[i].read_content(file, self.header.class, self.header.byte_order)?;
         Ok(Some(CString::from_vec_with_nul(interp)?))
     }
 

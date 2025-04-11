@@ -101,6 +101,11 @@ impl DependencyTree {
     pub fn is_empty(&self) -> bool {
         self.dependencies.is_empty()
     }
+
+    /// Get iterator over elements.
+    pub fn iter(&self) -> std::slice::Iter<(PathBuf, Vec<PathBuf>)> {
+        self.dependencies.iter()
+    }
 }
 
 impl Default for DependencyTree {
@@ -263,7 +268,7 @@ pub struct DynamicLoader {
     search_dirs_override: Vec<PathBuf>,
     lib: Option<OsString>,
     platform: Option<OsString>,
-    page_size: u64,
+    pub(crate) page_size: u64,
     libc: Libc,
 }
 
@@ -288,7 +293,6 @@ impl DynamicLoader {
         let mut dependencies: Vec<PathBuf> = Vec::new();
         let mut file = File::open(&dependent_file)?;
         let elf = Elf::read(&mut file, self.page_size)?;
-        let names = elf.read_section_names(&mut file)?.unwrap_or_default();
         let dynstr_table = elf
             .read_dynamic_string_table(&mut file)?
             .unwrap_or_default();
@@ -298,7 +302,7 @@ impl DynamicLoader {
             return Ok(Default::default());
         };
         let interpreter = elf
-            .read_interpreter(&names, &mut file)?
+            .read_interpreter(&mut file)?
             .map(|c_str| PathBuf::from(OsString::from_vec(c_str.into_bytes())));
         let mut search_dirs = Vec::new();
         let runpath = dynamic_table.get(DynamicTag::Runpath);

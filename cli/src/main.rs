@@ -11,12 +11,14 @@ mod deps;
 mod formatting;
 mod logger;
 mod patch;
+mod relocate;
 mod show;
 
 use self::deps::*;
 use self::formatting::*;
 use self::logger::*;
 use self::patch::*;
+use self::relocate::*;
 use self::show::*;
 
 #[derive(clap::Parser)]
@@ -45,6 +47,8 @@ enum Command {
     },
     /// Print dependencies.
     Deps(DepsArgs),
+    /// Relocate ELF with all of its dependencies.
+    Relocate(RelocateArgs),
     /// Modify ELF file.
     Patch(PatchArgs),
 }
@@ -73,6 +77,7 @@ fn do_main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Show(show_args) => show(args.common, show_args),
         Command::Check { file } => check(args.common, file),
         Command::Deps(deps_args) => deps(args.common, deps_args),
+        Command::Relocate(relocate_args) => relocate(args.common, relocate_args),
         Command::Patch(patch_args) => patch(args.common, patch_args),
     }
 }
