@@ -142,10 +142,7 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
 
     /// Get the interpreter.
     pub fn read_interpreter(&mut self) -> Result<Option<CString>, Error> {
-        let Some(interp) = self.read_section(INTERP_SECTION)? else {
-            return Ok(None);
-        };
-        Ok(Some(CString::from_vec_with_nul(interp)?))
+        self.elf.read_interpreter(&mut self.file)
     }
 
     /// Remove the interpreter.

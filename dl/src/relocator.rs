@@ -159,10 +159,7 @@ fn patch_file(file: &Path, directory: &Path, hash: &Hash, page_size: u64) -> Res
 fn get_file_kind(file: &Path, page_size: u64) -> Result<Option<FileKind>, Error> {
     let mut file = fs::File::open(file)?;
     let elf = Elf::read(&mut file, page_size)?;
-    let Some(names) = elf.read_section_names(&mut file)? else {
-        return Ok(None);
-    };
-    if elf.read_interpreter(&names, &mut file)?.is_some() {
+    if elf.read_interpreter(&mut file)?.is_some() {
         return Ok(Some(FileKind::Executable));
     }
     // No interpreter, but may be this is statically-linked executable.
