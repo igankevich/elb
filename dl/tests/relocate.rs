@@ -2,34 +2,23 @@
 #![allow(missing_docs)]
 
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::env::split_paths;
 use std::env::var_os;
-use std::ffi::CStr;
-use std::ffi::CString;
 use std::ffi::OsStr;
-use std::ffi::OsString;
-use std::fs::Permissions;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
 use elb::Elf;
-use elb::ElfPatcher;
 use fs_err::read_dir;
 use fs_err::File;
-use fs_err::OpenOptions;
 use tempfile::TempDir;
 
-use elb::DynamicTag;
 use elb_dl::glibc;
-use elb_dl::DependencyTree;
 use elb_dl::DynamicLoader;
+use elb_dl::ElfRelocator;
 use elb_dl::Error;
 
 #[test]
@@ -44,8 +33,9 @@ fn loader_resolves_system_files() {
     paths.sort_unstable();
     paths.dedup();
     eprintln!("ELF search directories: {:#?}", paths);
+    let page_size = page_size::get() as u64;
     let loader = DynamicLoader::options()
-        .page_size(4096)
+        .page_size(page_size)
         .search_dirs({
             let mut dirs = Vec::new();
             dirs.extend(glibc::get_hard_coded_search_dirs(None).unwrap());
@@ -54,6 +44,7 @@ fn loader_resolves_system_files() {
             dirs
         })
         .new_loader();
+    let relocator = ElfRelocator::new(loader);
     let mut visited = HashSet::new();
     let mut num_checked: usize = 0;
     for path in paths.iter() {
@@ -91,9 +82,9 @@ fn loader_resolves_system_files() {
                 continue;
             };
             // TODO
-            if file_name.to_str().unwrap_or_default().contains("systemd") {
-                continue;
-            }
+            //if file_name.to_str().unwrap_or_default().contains("systemd") {
+            //    continue;
+            //}
             if NOT_WORKING.contains(&file_name.to_str().unwrap_or_default()) {
                 // Known to not work.
                 continue;
@@ -106,181 +97,74 @@ fn loader_resolves_system_files() {
             {
                 continue;
             }
-            // TODO recursion
-            let mut tree = DependencyTree::new();
-            match loader.resolve_dependencies(&path, &mut tree) {
-                Ok(dependencies) => {
-                    let mut file = File::open(&path).unwrap();
-                    let elf = Elf::read(&mut file, 4096).unwrap();
-                    let mut patcher = ElfPatcher::new(elf, file);
-                    let Ok(Some(_)) = patcher.read_interpreter() else {
-                        continue;
-                    };
-                    let Ok(Some(data)) = patcher.read_section(c".rodata") else {
-                        continue;
-                    };
-                    let mut working_arg = None;
-                    for arg in [c"--version", c"--help"] {
-                        let bytes = arg.to_bytes_with_nul();
-                        // remove dashes
-                        let bytes = &bytes[2..];
-                        let Some(_) = data.windows(bytes.len()).position(|window| window == bytes)
-                        else {
-                            continue;
-                        };
-                        eprintln!("{path:?}: Found {arg:?}");
-                        working_arg = Some(arg);
-                        break;
-                    }
-                    let mut copied_files_hashes = HashSet::new();
-                    if let Some(arg) = working_arg {
-                        let arg = OsStr::from_bytes(arg.to_bytes());
-                        let expected_result = Command::new(&path)
-                            .arg(arg)
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .status();
-                        if expected_result.is_err() {
-                            continue;
-                        }
-                        eprintln!("Result {:?}", expected_result);
-                        let tmpdir = TempDir::with_prefix("elb-test-").unwrap();
-                        let workdir = tmpdir.path();
-                        fs_err::create_dir_all(workdir).unwrap();
-                        let mut queue = VecDeque::new();
-                        queue.extend(dependencies.iter().cloned());
-                        while let Some(dep_file) = queue.pop_front() {
-                            let file_hash = hash_file(&dep_file);
-                            if !copied_files_hashes.insert(file_hash.clone()) {
-                                continue;
-                            }
-                            let file_name = dep_file.file_name().unwrap();
-                            let new_dir = workdir.join(&file_hash);
-                            fs_err::create_dir_all(&new_dir).unwrap();
-                            let new_file = new_dir.join(file_name);
-                            fs_err::copy(&dep_file, &new_file).unwrap();
-                            fs_err::set_permissions(&new_file, Permissions::from_mode(0o755))
-                                .unwrap();
-                            let deps = loader.resolve_dependencies(&dep_file, &mut tree).unwrap();
-                            let mut file = OpenOptions::new()
-                                .read(true)
-                                .write(true)
-                                .open(&new_file)
-                                .unwrap();
-                            let elf = Elf::read(&mut file, 4096).unwrap();
-                            let mut patcher = ElfPatcher::new(elf, file);
-                            let dynamic_table =
-                                patcher.read_dynamic_table().unwrap().unwrap_or_default();
-                            if !dynamic_table
-                                .iter()
-                                .any(|(tag, _)| *tag == DynamicTag::Needed)
-                            {
-                                // Statically linked.
-                                continue;
-                            }
-                            patcher.remove_interpreter().unwrap();
-                            let run_path = {
-                                let mut bytes = Vec::new();
-                                for dep in deps.into_iter() {
-                                    if !bytes.is_empty() {
-                                        bytes.push(b':');
-                                    }
-                                    let file_hash = hash_file(&dep);
-                                    bytes.extend_from_slice(workdir.as_os_str().as_bytes());
-                                    bytes.push(b'/');
-                                    bytes.extend_from_slice(file_hash.as_bytes());
-                                    queue.push_back(dep);
-                                }
-                                bytes.push(0_u8);
-                                CString::from_vec_with_nul(bytes).unwrap()
-                            };
-                            patcher
-                                .set_library_search_path(DynamicTag::Runpath, run_path.as_c_str())
-                                .unwrap();
-                            patcher.finish().unwrap();
-                        }
-                        let new_path = workdir.join(path.file_name().unwrap());
-                        fs_err::copy(&path, &new_path).unwrap();
-                        fs_err::set_permissions(&new_path, Permissions::from_mode(0o755)).unwrap();
-                        let mut file = OpenOptions::new()
-                            .read(true)
-                            .write(true)
-                            .open(&new_path)
-                            .unwrap();
-                        // TODO
-                        let elf = Elf::read(&mut file, 4096).unwrap();
-                        let mut patcher = ElfPatcher::new(elf, file);
-                        let interpreter = patcher.read_interpreter().unwrap().unwrap();
-                        let interpreter: PathBuf =
-                            OsString::from_vec(interpreter.into_bytes()).into();
-                        let interpreter_hash = hash_file(&interpreter);
-                        let new_interpreter = workdir
-                            .join(&interpreter_hash)
-                            .join(interpreter.file_name().unwrap());
-                        let mut new_interpreter = new_interpreter.into_os_string();
-                        new_interpreter.push("\0");
-                        patcher
-                            .set_interpreter(
-                                CStr::from_bytes_with_nul(new_interpreter.as_bytes()).unwrap(),
-                            )
-                            .unwrap();
-                        //let mut file = patcher.finish().unwrap();
-                        //file.seek(SeekFrom::Start(0)).unwrap();
-                        //// TODO
-                        //let elf = Elf::read(&mut file, 4096).unwrap();
-                        //let mut patcher = ElfPatcher::new(elf, file);
-                        let run_path = {
-                            let mut bytes = Vec::new();
-                            for dep in dependencies.into_iter() {
-                                if !bytes.is_empty() {
-                                    bytes.push(b':');
-                                }
-                                let file_hash = hash_file(&dep);
-                                bytes.extend_from_slice(workdir.as_os_str().as_bytes());
-                                bytes.push(b'/');
-                                bytes.extend_from_slice(file_hash.as_bytes());
-                            }
-                            bytes.push(0_u8);
-                            CString::from_vec_with_nul(bytes).unwrap()
-                        };
-                        patcher
-                            .set_library_search_path(DynamicTag::Runpath, run_path.as_c_str())
-                            .unwrap();
-                        patcher.finish().unwrap();
-                        let actual_result = Command::new(&new_path)
-                            .arg(arg)
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .status();
-                        let expected = expected_result.unwrap();
-                        let actual = actual_result.unwrap();
-                        if expected != actual {
-                            let workdir = workdir.to_path_buf();
-                            std::mem::forget(tmpdir);
-                            panic!("Expected {expected:?}, actual {actual:?}, command {:?} {:?}, files {:?}", path, arg, workdir);
-                        }
-                        eprintln!("SUCCESS {:?}", path);
-                        num_checked += 1;
-                    }
-                }
+            let tmpdir = TempDir::with_prefix("elb-test-").unwrap();
+            let workdir = tmpdir.path();
+            let new_path = match relocator.relocate(&path, workdir) {
+                Ok(new_path) => new_path,
                 Err(Error::Elf(elb::Error::NotElf)) => continue,
                 Err(e) => {
                     panic!("Failed to process {:?}: {e}", path);
                 }
+            };
+            // Check that we can execute this binary with `--help` or `--version` argument.
+            let mut file = File::open(&path).unwrap();
+            let elf = Elf::read(&mut file, page_size).unwrap();
+            let Some(_) = elf.read_interpreter(&mut file).unwrap() else {
+                continue;
+            };
+            let Some(names) = elf.read_section_names(&mut file).unwrap() else {
+                continue;
+            };
+            let Ok(Some(data)) = elf.read_section(c".rodata", &names, &mut file) else {
+                continue;
+            };
+            let mut working_arg = None;
+            for arg in [c"--version", c"--help"] {
+                let bytes = arg.to_bytes_with_nul();
+                // remove dashes
+                let bytes = &bytes[2..];
+                let Some(_) = data.windows(bytes.len()).position(|window| window == bytes) else {
+                    continue;
+                };
+                eprintln!("{path:?}: Found {arg:?}");
+                working_arg = Some(arg);
+                break;
             }
+            let Some(working_arg) = working_arg else {
+                continue;
+            };
+            let arg = OsStr::from_bytes(working_arg.to_bytes());
+            // Execute the original binary.
+            let expected_result = Command::new(&path)
+                .arg(arg)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .status();
+            if expected_result.is_err() {
+                continue;
+            }
+            eprintln!("Result {:?}", expected_result);
+            // Now execute the relocated binary.
+            let actual_result = Command::new(&new_path)
+                .arg(arg)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .status();
+            let expected = expected_result.unwrap();
+            let actual = actual_result.unwrap();
+            if expected != actual {
+                let workdir = workdir.to_path_buf();
+                std::mem::forget(tmpdir);
+                panic!(
+                    "Expected {expected:?}, actual {actual:?}, command {:?} {:?}, files {:?}",
+                    path, arg, workdir
+                );
+            }
+            eprintln!("SUCCESS {:?}", path);
+            num_checked += 1;
         }
     }
     eprintln!("Checked {} file(s)", num_checked);
-}
-
-fn hash_file<P: AsRef<Path>>(path: P) -> String {
-    use base32::Alphabet;
-    use sha2::Digest;
-    let mut file = File::open(path.as_ref()).unwrap();
-    let mut hasher = sha2::Sha256::new();
-    std::io::copy(&mut file, &mut hasher).unwrap();
-    let hash = hasher.finalize();
-    base32::encode(Alphabet::Crockford, &hash[..]).to_lowercase()
 }
 
 fn append_paths_from_env(var_name: &str, paths: &mut Vec<PathBuf>) {

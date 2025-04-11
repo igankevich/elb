@@ -30,6 +30,7 @@ thiserror.workspace = true
 arbtest = "0.3.2"
 base32 = "0.5.1"
 env_logger = "0.11.6"
+page_size = "0.6.0"
 tempfile = "3.18.0"
 
 [lints]

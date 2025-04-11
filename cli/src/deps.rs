@@ -29,13 +29,15 @@ pub struct LoaderArgs {
     #[clap(short = 'L', long = "search-dirs", value_name = "DIR1:DIR2:...")]
     search_dirs: Option<PathBuf>,
 
-    /// Use `ld.so --list-diagnostics` to figure out hard-coded library search directoris.
+    /// Use `ld.so --list-diagnostics` to figure out hard-coded library search directories.
     ///
     /// Useful on Guix and Nix.
     #[clap(action, long = "hard-coded-search-dirs")]
     hard_coded_search_dirs: bool,
 
     /// Which libc implementation to emulate.
+    ///
+    /// This affects default library search paths and library search order.
     #[clap(
         short = 'l',
         long = "libc",
@@ -77,6 +79,7 @@ impl LoaderArgs {
     pub fn new_loader(self, page_size: u64) -> Result<DynamicLoader, elb_dl::Error> {
         let search_dirs = self.search_dirs()?;
         let loader = DynamicLoader::options()
+            .libc(self.libc.into())
             .page_size(page_size)
             .search_dirs_override(
                 std::env::var_os("LD_LIBRARY_PATH")
@@ -232,6 +235,15 @@ fn print_tree<W: Write>(
 pub enum Libc {
     Glibc,
     Musl,
+}
+
+impl From<Libc> for elb_dl::Libc {
+    fn from(other: Libc) -> Self {
+        match other {
+            Libc::Glibc => Self::Glibc,
+            Libc::Musl => Self::Musl,
+        }
+    }
 }
 
 #[derive(clap::ValueEnum, Clone, Copy)]
