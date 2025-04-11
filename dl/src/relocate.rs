@@ -11,8 +11,6 @@ use std::path::PathBuf;
 use elb::DynamicTag;
 use elb::Elf;
 use elb::ElfPatcher;
-use sha2::Digest;
-use sha2::Sha256;
 
 use crate::base32;
 use crate::fs;
@@ -88,7 +86,7 @@ impl ElfRelocator {
 fn relocate_file(file: &Path, dir: &Path) -> Result<(Hash, PathBuf), Error> {
     let hash = {
         let mut file = fs::File::open(file)?;
-        let mut hasher = Sha256::new();
+        let mut hasher = Blake2bHasher::new();
         std::io::copy(&mut file, &mut hasher)?;
         let hash = hasher.finalize();
         let mut encoded_hash: HashArray = [0_u8; base32::encoded_len(32)];
@@ -187,6 +185,37 @@ enum FileKind {
     Executable,
     Library,
     Static,
+}
+
+struct Blake2bHasher {
+    state: blake2b_simd::State,
+}
+
+impl Blake2bHasher {
+    fn new() -> Self {
+        Self {
+            state: blake2b_simd::Params::new().hash_length(32).to_state(),
+        }
+    }
+
+    fn finalize(self) -> [u8; 32] {
+        self.state
+            .finalize()
+            .as_bytes()
+            .try_into()
+            .expect("64 > 32")
+    }
+}
+
+impl std::io::Write for Blake2bHasher {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        self.state.update(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 type HashArray = [u8; base32::encoded_len(32)];

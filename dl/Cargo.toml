@@ -14,24 +14,24 @@ include = ["**/*.rs", "Cargo.toml", "README.md"]
 
 [features]
 default =  ["glibc", "musl", "fs-err"]
+fs-err = ["dep:fs-err"]
 glibc = ["dep:glob"]
 musl = []
-fs-err = ["dep:fs-err"]
+relocate = ["dep:blake2b_simd"]
 
 [dependencies]
+blake2b_simd = { version = "1.0.3", optional = true }
 elb = { path = "..", version = "0.3.0" }
-fs-err = { version = "3.1.0", optional = true }
+fs-err = { workspace = true, optional = true }
 glob = { version = "0.3.2", optional = true }
 log.workspace = true
-sha2 = "0.10.8"
 thiserror.workspace = true
 
 [dev-dependencies]
 arbtest = "0.3.2"
-base32 = "0.5.1"
-env_logger = "0.11.6"
+env_logger = "0.11.8"
 page_size = "0.6.0"
-tempfile = "3.18.0"
+tempfile = "3.19.1"
 
 [lints]
 workspace = true

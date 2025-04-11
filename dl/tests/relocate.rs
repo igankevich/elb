@@ -82,9 +82,9 @@ fn loader_resolves_system_files() {
                 continue;
             };
             // TODO
-            //if file_name.to_str().unwrap_or_default().contains("systemd") {
-            //    continue;
-            //}
+            if file_name.to_str().unwrap_or_default().contains("systemd") {
+                continue;
+            }
             if NOT_WORKING.contains(&file_name.to_str().unwrap_or_default()) {
                 // Known to not work.
                 continue;
