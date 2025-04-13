@@ -774,6 +774,7 @@ macro_rules! get_section_names {
         if $self.names.is_none() {
             $self.update_section_names()?;
         }
+        // SAFETY: `self.update_section_names` sets `self.names`.
         unsafe { $self.names.as_ref().unwrap_unchecked() }
     }};
 }
@@ -785,6 +786,7 @@ macro_rules! get_section_names_mut {
         if $self.names.is_none() {
             $self.update_section_names()?;
         }
+        // SAFETY: `self.update_section_names` sets `self.names`.
         unsafe { $self.names.as_mut().unwrap_unchecked() }
     }};
 }
