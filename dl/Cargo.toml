@@ -21,7 +21,7 @@ relocate = ["dep:blake2b_simd"]
 
 [dependencies]
 blake2b_simd = { version = "1.0.3", optional = true }
-elb = { path = "..", version = "0.3.0" }
+elb = { path = "..", version = "0.3.1" }
 fs-err = { workspace = true, optional = true }
 glob = { version = "0.3.2", optional = true }
 log.workspace = true
