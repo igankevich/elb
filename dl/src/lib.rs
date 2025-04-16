@@ -1,6 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-pub(crate) mod base32;
 mod error;
 mod loader;
 #[cfg(feature = "relocate")]

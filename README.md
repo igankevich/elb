@@ -41,3 +41,22 @@ fn patch_elf() -> Result<(), Error> {
     Ok(())
 }
 ```
+
+
+## References
+
+Other ELF readers/patchers:
+- [NixOS `patchelf`](https://github.com/NixOS/patchelf).
+- [LIEF](https://github.com/lief-project/LIEF).
+- [Linux `binfmt_elf`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/binfmt_elf.c).
+
+Dynamic linkers:
+- [Glibc](https://sourceware.org/git/?p=glibc.git;a=blob;f=elf/dl-load.c;h=6b7e9799f323d04bf47a672bb28c99e477808e85;hb=HEAD#l1149).
+- [Musl](https://git.musl-libc.org/cgit/musl/tree/ldso/dynlink.c#n685).
+
+Man pages:
+- [`elf(5)`](https://man7.org/linux/man-pages/man5/elf.5.html).
+
+Linters:
+- ELFUTILS [`eu-elflint`](https://sourceware.org/elfutils/).
+- Binutils [`readelf --lint`](https://sourceware.org/git/?p=binutils.git;a=blob;f=binutils/readelf.c;h=7920100630038dfba93ae9bf2c4d4a9bfaa17bde;hb=HEAD).

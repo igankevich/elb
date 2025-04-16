@@ -12,7 +12,6 @@ use elb::DynamicTag;
 use elb::Elf;
 use elb::ElfPatcher;
 
-use crate::base32;
 use crate::fs;
 use crate::fs::os::unix::fs::symlink;
 use crate::DependencyTree;
@@ -89,8 +88,8 @@ fn relocate_file(file: &Path, dir: &Path) -> Result<(Hash, PathBuf), Error> {
         let mut hasher = Blake2bHasher::new();
         std::io::copy(&mut file, &mut hasher)?;
         let hash = hasher.finalize();
-        let mut encoded_hash: HashArray = [0_u8; base32::encoded_len(32)];
-        base32::encode_into(&hash[..], &mut encoded_hash[..]);
+        let mut encoded_hash: HashArray = [0_u8; base32_fs::encoded_len(32)];
+        base32_fs::encode(&hash[..], &mut &mut encoded_hash[..]);
         Hash(encoded_hash)
     };
     let mut new_path = PathBuf::new();
@@ -146,9 +145,11 @@ fn patch_file(file: &Path, directory: &Path, hash: &Hash, page_size: u64) -> Res
                 .as_bytes();
             let mut bytes = Vec::with_capacity(dir_bytes.len() + file_name_bytes.len() + 2);
             bytes.extend_from_slice(dir_bytes);
-            bytes.push(b'/');
+            bytes.extend_from_slice(std::path::MAIN_SEPARATOR_STR.as_bytes());
             bytes.extend_from_slice(file_name_bytes);
             bytes.push(0_u8);
+            // SAFETY: The string is constructed from `dir` and `file_name` which don't contain NUL
+            // characters. We add a NUL character at the end.
             unsafe { CString::from_vec_with_nul_unchecked(bytes) }
         };
         patcher.set_interpreter(interpreter.as_c_str())?;
@@ -157,6 +158,8 @@ fn patch_file(file: &Path, directory: &Path, hash: &Hash, page_size: u64) -> Res
         let mut bytes = Vec::with_capacity(dir_bytes.len() + 1);
         bytes.extend_from_slice(dir_bytes);
         bytes.push(0_u8);
+        // SAFETY: The string is constructed from `dir` which doesn't contain NUL characters. We
+        // add a NUL character at the end.
         unsafe { CString::from_vec_with_nul_unchecked(bytes) }
     };
     patcher.set_library_search_path(DynamicTag::Runpath, runpath.as_c_str())?;
@@ -218,12 +221,14 @@ impl std::io::Write for Blake2bHasher {
     }
 }
 
-type HashArray = [u8; base32::encoded_len(32)];
+type HashArray = [u8; base32_fs::encoded_len(32)];
 
 struct Hash(HashArray);
 
 impl Hash {
     fn as_str(&self) -> &str {
+        // SAFETY: BASE32 string is composed of ASCII characters. Any ASCII string is also a valid
+        // UTF-8 string.
         unsafe { std::str::from_utf8_unchecked(&self.0[..]) }
     }
 }

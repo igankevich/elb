@@ -13,10 +13,10 @@ categories = ["encoding", "command-line-utilities", "api-bindings"]
 include = ["**/*.rs", "Cargo.toml", "README.md"]
 
 [dependencies]
-clap = { version = "4.5.35", features = ["derive"] }
+clap = { version = "4.5.36", features = ["derive"] }
 colored = "3.0.0"
-elb = { path = "..", version = "0.3.0" }
-elb-dl = { path = "../dl", version = "0.3.0", features = ["relocate"] }
+elb = { path = "..", version = "0.3.1" }
+elb-dl = { path = "../dl", version = "0.3.1", features = ["relocate"] }
 env_logger = "0.11.8"
 fs-err = "3.1.0"
 log.workspace = true
