@@ -12,7 +12,6 @@ use elb::DynamicTag;
 use elb::Elf;
 use elb::ElfPatcher;
 
-use crate::base32;
 use crate::fs;
 use crate::fs::os::unix::fs::symlink;
 use crate::DependencyTree;
@@ -89,8 +88,8 @@ fn relocate_file(file: &Path, dir: &Path) -> Result<(Hash, PathBuf), Error> {
         let mut hasher = Blake2bHasher::new();
         std::io::copy(&mut file, &mut hasher)?;
         let hash = hasher.finalize();
-        let mut encoded_hash: HashArray = [0_u8; base32::encoded_len(32)];
-        base32::encode_into(&hash[..], &mut encoded_hash[..]);
+        let mut encoded_hash: HashArray = [0_u8; base32_fs::encoded_len(32)];
+        base32_fs::encode(&hash[..], &mut &mut encoded_hash[..]);
         Hash(encoded_hash)
     };
     let mut new_path = PathBuf::new();
@@ -222,7 +221,7 @@ impl std::io::Write for Blake2bHasher {
     }
 }
 
-type HashArray = [u8; base32::encoded_len(32)];
+type HashArray = [u8; base32_fs::encoded_len(32)];
 
 struct Hash(HashArray);
 
