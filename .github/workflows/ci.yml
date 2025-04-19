@@ -16,6 +16,10 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Test
         run: ./ci/test.sh
+      - name: Install cargo-cross
+        run: cargo install cross
+      - name: Cross test
+        run: ./ci/cross.sh
       - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}

@@ -16,6 +16,7 @@ mod enums;
 mod error;
 mod flags;
 mod header;
+pub mod host;
 mod io;
 mod macros;
 mod patch;

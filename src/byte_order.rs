@@ -1,6 +1,6 @@
 use crate::Error;
 
-/// Data format.
+/// Data format (endiannes).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[repr(u8)]

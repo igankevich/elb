@@ -15,6 +15,8 @@ pub enum Error {
     InvalidByteOrder(u8),
     #[error("Invalid version: {0}")]
     InvalidVersion(u8),
+    #[error("Invalid file version: {0}")]
+    InvalidFileVersion(u32),
     #[error("Invalid ELF header size: {0}")]
     InvalidHeaderLen(u16),
     #[error("Invalid section header string table index: {0}")]
