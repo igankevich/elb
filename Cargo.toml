@@ -32,7 +32,7 @@ members = [".", "cli", "dl"]
 default-members = [".", "cli", "dl"]
 
 [workspace.package]
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/igankevich/elb"
@@ -54,6 +54,10 @@ undocumented_unsafe_blocks = "deny"
 
 [workspace.lints.rust]
 missing_docs = "warn"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [profile.test.package.blake2b_simd]
 opt-level = 3
