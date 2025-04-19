@@ -76,6 +76,7 @@ pub enum Error {
     FileSpaceAlloc,
     #[error("Input/output error: {0}")]
     #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     Io(std::io::Error),
     #[error("Invalid C-string")]
     CStr,
@@ -84,6 +85,7 @@ pub enum Error {
 }
 
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl From<std::io::Error> for Error {
     fn from(other: std::io::Error) -> Self {
         if other.kind() == std::io::ErrorKind::UnexpectedEof {
