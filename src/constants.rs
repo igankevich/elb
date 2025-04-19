@@ -2,6 +2,7 @@ use core::ffi::CStr;
 
 pub const MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
 pub const VERSION: u8 = 1;
+pub const FILE_VERSION: u32 = 1;
 
 pub const HEADER_LEN_32: usize = 52;
 pub const HEADER_LEN_64: usize = 64;

@@ -65,6 +65,7 @@ pub trait ElfRead {
 }
 
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl<R: std::io::Read + ?Sized> ElfRead for R {
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), crate::Error> {
         Ok(self.read_exact(buf)?)
@@ -72,6 +73,7 @@ impl<R: std::io::Read + ?Sized> ElfRead for R {
 }
 
 #[cfg(not(feature = "std"))]
+#[cfg_attr(docsrs, doc(cfg(not(feature = "std"))))]
 impl ElfRead for &[u8] {
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), crate::Error> {
         let n = buf.len();
@@ -169,6 +171,7 @@ pub trait ElfWrite {
 }
 
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl<W: std::io::Write + ?Sized> ElfWrite for W {
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
         Ok(self.write_all(bytes)?)
@@ -182,6 +185,7 @@ pub trait ElfSeek {
 }
 
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl<S: std::io::Seek + ?Sized> ElfSeek for S {
     fn seek(&mut self, offset: u64) -> Result<(), Error> {
         self.seek(std::io::SeekFrom::Start(offset))?;

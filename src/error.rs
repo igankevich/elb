@@ -15,6 +15,8 @@ pub enum Error {
     InvalidByteOrder(u8),
     #[error("Invalid version: {0}")]
     InvalidVersion(u8),
+    #[error("Invalid file version: {0}")]
+    InvalidFileVersion(u32),
     #[error("Invalid ELF header size: {0}")]
     InvalidHeaderLen(u16),
     #[error("Invalid section header string table index: {0}")]
@@ -76,6 +78,7 @@ pub enum Error {
     FileSpaceAlloc,
     #[error("Input/output error: {0}")]
     #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     Io(std::io::Error),
     #[error("Invalid C-string")]
     CStr,
@@ -84,6 +87,7 @@ pub enum Error {
 }
 
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl From<std::io::Error> for Error {
     fn from(other: std::io::Error) -> Self {
         if other.kind() == std::io::ErrorKind::UnexpectedEof {

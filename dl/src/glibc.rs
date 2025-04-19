@@ -68,7 +68,16 @@ fn parse_ld_so_conf(
                     // Malformed "include" directive.
                     continue;
                 };
-                let pattern = &line[i + 1..];
+                let pattern = if line.as_bytes().get(i + 1).copied() == Some(b'/') {
+                    &line[i + 2..]
+                } else {
+                    &line[i + 1..]
+                };
+                let pattern = rootfs_dir.join(pattern);
+                let Some(pattern) = pattern.to_str() else {
+                    // Not a valid UTF-8 string.
+                    continue;
+                };
                 let Ok(more_paths) = glob(pattern) else {
                     // Unparsable glob pattern.
                     continue;
@@ -77,10 +86,6 @@ fn parse_ld_so_conf(
                     let Ok(path) = path else {
                         continue;
                     };
-                    let Ok(path) = path.strip_prefix("/") else {
-                        continue;
-                    };
-                    let path = rootfs_dir.join(path);
                     if !conf_files.contains(&path) {
                         queue.push_back(path);
                     }

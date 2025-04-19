@@ -73,11 +73,10 @@ impl Header {
         reader.read_bytes(&mut [0_u8; 7])?;
         let kind: FileKind = reader.read_u16(byte_order)?.into();
         let machine = reader.read_u16(byte_order)?.into();
-        let version = reader.read_u8()?;
-        if version != VERSION {
-            return Err(Error::InvalidVersion(version));
+        let version = reader.read_u32(byte_order)?;
+        if version != FILE_VERSION {
+            return Err(Error::InvalidFileVersion(version));
         }
-        reader.read_bytes(&mut [0_u8; 3])?;
         let entry_point = reader.read_word(class, byte_order)?;
         let program_header_offset = reader.read_word(class, byte_order)?;
         let section_header_offset = reader.read_word(class, byte_order)?;
@@ -123,8 +122,7 @@ impl Header {
         writer.write_bytes(&[0_u8; 7])?;
         writer.write_u16(self.byte_order, self.kind.as_u16())?;
         writer.write_u16(self.byte_order, self.machine.as_u16())?;
-        writer.write_u8(VERSION)?;
-        writer.write_bytes(&[0_u8; 3])?;
+        writer.write_u32(self.byte_order, FILE_VERSION)?;
         writer.write_word(self.class, self.byte_order, self.entry_point)?;
         writer.write_word(self.class, self.byte_order, self.program_header_offset)?;
         writer.write_word(self.class, self.byte_order, self.section_header_offset)?;

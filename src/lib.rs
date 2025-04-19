@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![no_std]
 
 extern crate alloc;
@@ -15,6 +16,7 @@ mod enums;
 mod error;
 mod flags;
 mod header;
+pub mod host;
 mod io;
 mod macros;
 mod patch;
