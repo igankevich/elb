@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use elb::ArmFlags;
 use elb::BlockRead;
+use elb::DynamicTag;
 use elb::Elf;
 use elb::ElfSeek;
 use elb::Machine;
@@ -15,6 +16,7 @@ use elb::SymbolTable;
 use fs_err::File;
 
 use crate::CommonArgs;
+use crate::DynamicTagStr;
 use crate::SectionFlagsStr;
 use crate::SectionKindStr;
 use crate::SegmentFlagsStr;
@@ -52,6 +54,10 @@ pub fn show(common: CommonArgs, args: ShowArgs) -> Result<(), Box<dyn std::error
             let mut printer = Printer::new(false);
             show_segments(&elf, &section_names, &mut printer)?;
         }
+        What::Dynamic => {
+            let mut printer = Printer::new(true);
+            show_dynamic(&elf, &mut file, &mut printer)?;
+        }
         What::Symbols => {
             let mut printer = Printer::new(true);
             show_symbols(&elf, &section_names, &mut file, &mut printer)?;
@@ -64,6 +70,8 @@ pub fn show(common: CommonArgs, args: ShowArgs) -> Result<(), Box<dyn std::error
             show_sections(&elf, &section_names, &mut printer)?;
             printer.title("Segments");
             show_segments(&elf, &section_names, &mut printer)?;
+            printer.title("Dynamic table");
+            show_dynamic(&elf, &mut file, &mut printer)?;
             show_symbols(&elf, &section_names, &mut file, &mut printer)?;
         }
     }
@@ -200,6 +208,60 @@ fn show_segments(
     Ok(())
 }
 
+fn show_dynamic(
+    elf: &Elf,
+    file: &mut File,
+    printer: &mut Printer,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(table) = elf.read_dynamic_table(file)? else {
+        // No dynamic table.
+        return Ok(());
+    };
+    let strings = elf.read_dynamic_string_table(file)?.unwrap_or_default();
+    if !table.is_empty() {
+        printer.row(format_args!("{:20}  Value", "Tag"));
+    }
+    for (tag, value) in table.into_inner().into_iter() {
+        let tag_str = DynamicTagStr(tag);
+        match tag {
+            // Strings.
+            DynamicTag::Needed
+            | DynamicTag::Runpath
+            | DynamicTag::Rpath
+            | DynamicTag::SharedObjectName => match strings.get_string(value as usize) {
+                Some(value) => printer.row(format_args!(
+                    "{tag_str:20}  {}",
+                    String::from_utf8_lossy(value.to_bytes())
+                )),
+                None => printer.row(format_args!("{tag_str:20}  <not found> ({value:#x})",)),
+            },
+            // Sizes in bytes.
+            DynamicTag::PltRelSize
+            | DynamicTag::RelaTableSize
+            | DynamicTag::RelTableSize
+            | DynamicTag::RelrTableSize
+            | DynamicTag::RelEntrySize
+            | DynamicTag::RelaEntrySize
+            | DynamicTag::RelrEntrySize
+            | DynamicTag::StringTableSize
+            | DynamicTag::SymbolEntrySize
+            | DynamicTag::InitArraySize
+            | DynamicTag::FiniArraySize
+            | DynamicTag::PreInitArraySize => {
+                printer.row(format_args!("{tag_str:20}  {value} B"));
+            }
+            // Counts.
+            DynamicTag::Other(0x6ffffff9) | DynamicTag::Other(0x6fffffff) => {
+                printer.row(format_args!("{tag_str:20}  {value}"));
+            }
+            _ => {
+                printer.row(format_args!("{tag_str:20}  {value:#x}"));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn show_symbols(
     elf: &Elf,
     names: &StringTable,
@@ -302,12 +364,13 @@ impl Printer {
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Default)]
-#[clap(rename_all = "snake_case")]
+#[clap(rename_all = "kebab-case")]
 enum What {
     #[default]
     All,
     Header,
     Sections,
     Segments,
+    Dynamic,
     Symbols,
 }
