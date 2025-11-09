@@ -103,7 +103,7 @@ impl DependencyTree {
     }
 
     /// Get iterator over elements.
-    pub fn iter(&self) -> std::slice::Iter<(PathBuf, Vec<PathBuf>)> {
+    pub fn iter(&self) -> std::slice::Iter<'_, (PathBuf, Vec<PathBuf>)> {
         self.dependencies.iter()
     }
 }
