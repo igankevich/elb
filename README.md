@@ -6,7 +6,7 @@
 
 ELF reader/patcher library that features
 - reading and writing ELF files,
-- patching `RPATH`, `RUNPATH` and interpreter via high-level API,
+- patching `RPATH`, `RUNPATH`, `SONAME` and interpreter via high-level API,
 - verifying correctness of ELF files,
 - custom patching via low-level API.
 
