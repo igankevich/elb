@@ -32,6 +32,11 @@ impl DynamicTable {
         };
         (self.entries.len() + x) * class.dynamic_len()
     }
+
+    /// Convert into underlying reperesentation.
+    pub fn into_inner(self) -> Vec<(DynamicTag, u64)> {
+        self.entries
+    }
 }
 
 impl BlockRead for DynamicTable {

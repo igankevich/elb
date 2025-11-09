@@ -6,7 +6,7 @@
 
 ELF reader/patcher library that features
 - reading and writing ELF files,
-- patching `RPATH`, `RUNPATH` and interpreter via high-level API,
+- patching `RPATH`, `RUNPATH`, `SONAME` and interpreter via high-level API,
 - verifying correctness of ELF files,
 - custom patching via low-level API.
 
@@ -36,7 +36,7 @@ fn patch_elf() -> Result<(), Error> {
     let elf = Elf::read(&mut file, page_size)?;
     let mut patcher = ElfPatcher::new(elf, file);
     patcher.set_interpreter(c"/chroot/lib64/ld-linux-x86-64.so.2")?;
-    patcher.set_library_search_path(DynamicTag::Runpath, c"/chroot/lib64:/chroot/usr/lib64")?;
+    patcher.set_dynamic_tag(DynamicTag::Runpath, c"/chroot/lib64:/chroot/usr/lib64")?;
     patcher.finish()?;
     Ok(())
 }

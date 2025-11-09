@@ -361,6 +361,8 @@ impl Section {
         Ok(())
     }
 
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_is_multiple_of)]
     fn check_align(&self) -> Result<(), Error> {
         match self.kind {
             SectionKind::NoBits => {

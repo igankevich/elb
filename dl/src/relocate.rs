@@ -162,7 +162,7 @@ fn patch_file(file: &Path, directory: &Path, hash: &Hash, page_size: u64) -> Res
         // add a NUL character at the end.
         unsafe { CString::from_vec_with_nul_unchecked(bytes) }
     };
-    patcher.set_library_search_path(DynamicTag::Runpath, runpath.as_c_str())?;
+    patcher.set_dynamic_tag(DynamicTag::Runpath, runpath.as_c_str())?;
     patcher.finish()?;
     Ok(())
 }

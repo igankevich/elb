@@ -1,3 +1,4 @@
+use elb::DynamicTag;
 use elb::SectionFlags;
 use elb::SectionKind;
 use elb::SegmentFlags;
@@ -172,6 +173,62 @@ impl std::fmt::Display for SymbolKindStr {
         match s {
             Some(s) => write!(f, "{:width$}", s, width = width),
             None => write!(f, "{:#width$x}", self.0.as_u8(), width = width),
+        }
+    }
+}
+
+pub struct DynamicTagStr(pub DynamicTag);
+
+impl std::fmt::Display for DynamicTagStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let s = match self.0 {
+            DynamicTag::Needed => Some("NEEDED"),
+            DynamicTag::PltRelSize => Some("PLTRELSZ"),
+            DynamicTag::PltGot => Some("PLTGOT"),
+            DynamicTag::Hash => Some("HASH"),
+            DynamicTag::StringTableAddress => Some("STRTAB"),
+            DynamicTag::SymbolTableAddress => Some("SYMTAB"),
+            DynamicTag::RelaTableAddress => Some("RELA"),
+            DynamicTag::RelaTableSize => Some("RELASZ"),
+            DynamicTag::RelaEntrySize => Some("RELAENT"),
+            DynamicTag::StringTableSize => Some("STRSZ"),
+            DynamicTag::SymbolEntrySize => Some("SYMSZ"),
+            DynamicTag::InitAddress => Some("INIT"),
+            DynamicTag::FiniAddress => Some("FINI"),
+            DynamicTag::SharedObjectName => Some("SONAME"),
+            DynamicTag::Rpath => Some("RPATH"),
+            DynamicTag::Symbolic => Some("SYMBOLIC"),
+            DynamicTag::RelTableAddress => Some("REL"),
+            DynamicTag::RelTableSize => Some("RELSZ"),
+            DynamicTag::RelEntrySize => Some("RELENT"),
+            DynamicTag::PltRel => Some("PLTREL"),
+            DynamicTag::Debug => Some("DEBUG"),
+            DynamicTag::TextRel => Some("TEXTREL"),
+            DynamicTag::JmpRel => Some("JMPREL"),
+            DynamicTag::BindNow => Some("BIND_NOW"),
+            DynamicTag::InitArray => Some("INIT_ARRAY"),
+            DynamicTag::InitArraySize => Some("INIT_ARRAYSZ"),
+            DynamicTag::FiniArray => Some("FINI_ARRAY"),
+            DynamicTag::FiniArraySize => Some("FINI_ARRAYSZ"),
+            DynamicTag::Runpath => Some("RUNPATH"),
+            DynamicTag::Flags => Some("FLAGS"),
+            DynamicTag::PreInitArray => Some("PREINIT_ARRAY"),
+            DynamicTag::PreInitArraySize => Some("PREINIT_ARRAYSZ"),
+            DynamicTag::SymbolTableIndex => Some("SYMTAB_SHNDX"),
+            DynamicTag::RelrTableAddress => Some("RELR"),
+            DynamicTag::RelrTableSize => Some("RELRSZ"),
+            DynamicTag::RelrEntrySize => Some("RELRENT"),
+            DynamicTag::Other(0x6ffffef5) => Some("GNU_HASH"),
+            DynamicTag::Other(0x6ffffffe) => Some("VERNEED"),
+            DynamicTag::Other(0x6fffffff) => Some("VERNEEDNUM"),
+            DynamicTag::Other(0x6ffffff0) => Some("VERSYM"),
+            DynamicTag::Other(0x6ffffff9) => Some("RELACOUNT"),
+            _ => None,
+        };
+        let width = f.width().unwrap_or(0);
+        match s {
+            Some(s) => write!(f, "{:width$}", s, width = width),
+            None => write!(f, "{:#width$x}", self.0.as_u32(), width = width),
         }
     }
 }

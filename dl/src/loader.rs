@@ -103,7 +103,7 @@ impl DependencyTree {
     }
 
     /// Get iterator over elements.
-    pub fn iter(&self) -> std::slice::Iter<(PathBuf, Vec<PathBuf>)> {
+    pub fn iter(&self) -> std::slice::Iter<'_, (PathBuf, Vec<PathBuf>)> {
         self.dependencies.iter()
     }
 }
@@ -135,6 +135,7 @@ pub enum Libc {
 
 /// Dynamic loader options.
 pub struct LoaderOptions {
+    root: PathBuf,
     search_dirs: Vec<PathBuf>,
     search_dirs_override: Vec<PathBuf>,
     lib: Option<OsString>,
@@ -147,6 +148,7 @@ impl LoaderOptions {
     /// Default options.
     pub fn new() -> Self {
         Self {
+            root: "/".into(),
             search_dirs: Default::default(),
             search_dirs_override: Default::default(),
             lib: None,
@@ -158,24 +160,36 @@ impl LoaderOptions {
 
     /// Glibc-specific options.
     #[cfg(feature = "glibc")]
-    pub fn glibc<P: AsRef<Path>>(rootfs_dir: P) -> Result<Self, std::io::Error> {
+    pub fn glibc<P: Into<PathBuf>>(rootfs_dir: P) -> Result<Self, std::io::Error> {
+        let root: PathBuf = rootfs_dir.into();
         Ok(Self {
-            search_dirs: crate::glibc::get_search_dirs(rootfs_dir)?,
+            search_dirs: crate::glibc::get_search_dirs(root.as_path())?,
             search_dirs_override: get_search_dirs_from_env(),
             libc: Libc::Glibc,
+            root,
             ..Default::default()
         })
     }
 
     /// Musl-specific options.
     #[cfg(feature = "musl")]
-    pub fn musl<P: AsRef<Path>>(rootfs_dir: P, arch: &str) -> Result<Self, std::io::Error> {
+    pub fn musl<P: Into<PathBuf>>(rootfs_dir: P, arch: &str) -> Result<Self, std::io::Error> {
+        let root: PathBuf = rootfs_dir.into();
         Ok(Self {
-            search_dirs: crate::musl::get_search_dirs(rootfs_dir, arch)?,
+            search_dirs: crate::musl::get_search_dirs(root.as_path(), arch)?,
             search_dirs_override: get_search_dirs_from_env(),
             libc: Libc::Musl,
+            root,
             ..Default::default()
         })
+    }
+
+    /// File system root.
+    ///
+    /// Affects the interpreter path, but doesn't affect library search directories.
+    pub fn root<P: Into<PathBuf>>(mut self, root: P) -> Self {
+        self.root = root.into();
+        self
     }
 
     /// Dynamic linker implementation that we're emulating.
@@ -244,6 +258,7 @@ impl LoaderOptions {
     /// Create new dynamic loader using the current options.
     pub fn new_loader(self) -> DynamicLoader {
         DynamicLoader {
+            root: self.root,
             search_dirs: self.search_dirs,
             search_dirs_override: self.search_dirs_override,
             lib: self.lib,
@@ -264,6 +279,7 @@ impl Default for LoaderOptions {
 ///
 /// Resolved ELF dependencies without loading and executing the files.
 pub struct DynamicLoader {
+    root: PathBuf,
     search_dirs: Vec<PathBuf>,
     search_dirs_override: Vec<PathBuf>,
     lib: Option<OsString>,
@@ -290,9 +306,17 @@ impl DynamicLoader {
         if tree.contains(&dependent_file) {
             return Ok(Default::default());
         }
+        let dependent_file = if dependent_file.strip_prefix(&self.root).is_err() {
+            let relative = dependent_file
+                .strip_prefix("/")
+                .unwrap_or(dependent_file.as_path());
+            self.root.join(relative)
+        } else {
+            dependent_file
+        };
         let mut dependencies: Vec<PathBuf> = Vec::new();
         let mut file = File::open(&dependent_file)?;
-        let elf = Elf::read(&mut file, self.page_size)?;
+        let elf = Elf::read_unchecked(&mut file, self.page_size)?;
         let dynstr_table = elf
             .read_dynamic_string_table(&mut file)?
             .unwrap_or_default();
@@ -303,7 +327,7 @@ impl DynamicLoader {
         };
         let interpreter = elf
             .read_interpreter(&mut file)?
-            .map(|c_str| PathBuf::from(OsString::from_vec(c_str.into_bytes())));
+            .map(|interpreter| PathBuf::from(OsString::from_vec(interpreter.into_bytes())));
         let mut search_dirs = Vec::new();
         let runpath = dynamic_table.get(DynamicTag::Runpath);
         let rpath = dynamic_table.get(DynamicTag::Rpath);
@@ -317,13 +341,22 @@ impl DynamicLoader {
         }
         let mut extend_search_dirs = |path: &CStr| {
             search_dirs.extend(split_paths(OsStr::from_bytes(path.to_bytes())).map(|dir| {
-                interpolate(
+                let path = interpolate(
                     &dir,
                     &dependent_file,
                     &elf,
                     self.lib.as_deref(),
                     self.platform.as_deref(),
-                )
+                );
+                // Prepend root.
+                if !path.starts_with(&self.root) {
+                    match path.strip_prefix("/") {
+                        Ok(relative) => self.root.join(relative),
+                        Err(_) => path,
+                    }
+                } else {
+                    path
+                }
             }));
         };
         match self.libc {
@@ -354,6 +387,7 @@ impl DynamicLoader {
         }
         // Directories that are searched after RUNPATH or RPATH.
         search_dirs.extend_from_slice(self.search_dirs.as_slice());
+        trace!("Search directories for {dependent_file:?}: {search_dirs:?}");
         'outer: for (tag, value) in dynamic_table.iter() {
             if *tag != DynamicTag::Needed {
                 continue;
