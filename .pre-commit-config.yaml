@@ -37,6 +37,6 @@ repos:
         entry: shfmt --indent 4 --diff --write
         types: [shell]
   - repo: https://github.com/lyz-code/yamlfix
-    rev: 1.17.0
+    rev: 1.19.0
     hooks:
       - id: yamlfix

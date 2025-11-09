@@ -24,7 +24,7 @@ base32-fs = "0.1.2"
 blake2b_simd = { version = "1.0.3", optional = true }
 elb.workspace = true
 fs-err = { workspace = true, optional = true }
-glob = { version = "0.3.2", optional = true }
+glob = { version = "0.3.3", optional = true }
 log.workspace = true
 thiserror.workspace = true
 
@@ -32,7 +32,7 @@ thiserror.workspace = true
 arbtest = "0.3.2"
 env_logger = "0.11.8"
 page_size = "0.6.0"
-tempfile = "3.19.1"
+tempfile = "3.23.0"
 
 [lints]
 workspace = true
