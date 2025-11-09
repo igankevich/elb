@@ -278,13 +278,26 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
     /// Set the value under the specified dynamic tag in the dynamic table.
     ///
     /// Does nothing if the table is not present in the file.
+    #[deprecated(note = "Use `set_dynamic_tag` instead.")]
     pub fn set_library_search_path<'a>(
         &mut self,
         entry_kind: DynamicTag,
         value: impl Into<DynamicValue<'a>>,
     ) -> Result<(), Error> {
+        self.set_dynamic_tag(entry_kind, value)
+    }
+
+    /// Set the value under the specified dynamic tag in the dynamic table.
+    ///
+    /// Supports `RPATH`, `RUNPATH` and `SONAME`.
+    /// Does nothing if the table is not present in the file.
+    pub fn set_dynamic_tag<'a>(
+        &mut self,
+        entry_kind: DynamicTag,
+        value: impl Into<DynamicValue<'a>>,
+    ) -> Result<(), Error> {
         use DynamicTag::*;
-        assert!(matches!(entry_kind, Rpath | Runpath));
+        assert!(matches!(entry_kind, Rpath | Runpath | SharedObjectName));
         // Read and remove dynamic table.
         let (mut dynamic_table, old_dynamic_table_virtual_address) = match self
             .elf
