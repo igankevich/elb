@@ -536,7 +536,7 @@ mod tests {
                 if offset == 0 {
                     i * page_size
                 } else {
-                    (i + 1).checked_mul(page_size).unwrap_or(u64::MAX)
+                    (i + 1).saturating_mul(page_size)
                 },
                 align_up(i * page_size + offset, page_size)
             );
