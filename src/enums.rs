@@ -1,8 +1,8 @@
 #![allow(missing_docs)]
 
+use crate::Error;
 use crate::define_enum_v2;
 use crate::define_infallible_enum;
-use crate::Error;
 
 define_infallible_enum! {
     "ELF file type.",

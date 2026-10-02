@@ -3,9 +3,6 @@ use core::ops::Deref;
 use core::ops::DerefMut;
 use core::ops::Range;
 
-use crate::check_u32;
-use crate::constants::*;
-use crate::zero;
 use crate::BlockRead;
 use crate::BlockWrite;
 use crate::ByteOrder;
@@ -21,6 +18,9 @@ use crate::ProgramHeader;
 use crate::SectionFlags;
 use crate::SectionKind;
 use crate::SegmentKind;
+use crate::check_u32;
+use crate::constants::*;
+use crate::zero;
 
 /// Sections.
 #[derive(Debug)]
@@ -64,10 +64,10 @@ impl BlockWrite for SectionHeader {
 impl SectionHeader {
     /// Check sections.
     pub fn check(&self, header: &Header, program_header: &ProgramHeader) -> Result<(), Error> {
-        if let Some(section) = self.entries.first() {
-            if section.kind != SectionKind::Null {
-                return Err(Error::InvalidFirstSectionKind(section.kind));
-            }
+        if let Some(section) = self.entries.first()
+            && section.kind != SectionKind::Null
+        {
+            return Err(Error::InvalidFirstSectionKind(section.kind));
         }
         if (SECTION_RESERVED_MIN..=SECTION_RESERVED_MAX).contains(&self.entries.len()) {
             return Err(Error::TooManySections(self.entries.len()));
@@ -417,9 +417,9 @@ mod tests {
 
     use arbitrary::Unstructured;
 
+    use crate::test::ArbitraryWithClass;
     use crate::test::test_block_io;
     use crate::test::test_entity_io;
-    use crate::test::ArbitraryWithClass;
 
     #[test]
     fn section_io() {

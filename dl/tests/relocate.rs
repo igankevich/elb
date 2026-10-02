@@ -12,14 +12,14 @@ use std::process::Command;
 use std::process::Stdio;
 
 use elb::Elf;
-use fs_err::read_dir;
 use fs_err::File;
+use fs_err::read_dir;
 use tempfile::TempDir;
 
-use elb_dl::glibc;
 use elb_dl::DynamicLoader;
 use elb_dl::ElfRelocator;
 use elb_dl::Error;
+use elb_dl::glibc;
 
 #[test]
 fn loader_resolves_system_files() {

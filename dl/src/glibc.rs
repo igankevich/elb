@@ -9,10 +9,10 @@ use std::process::Stdio;
 
 use crate::fs::File;
 use glob::glob;
+use log::Level::Trace;
 use log::log_enabled;
 use log::trace;
 use log::warn;
-use log::Level::Trace;
 
 /// Get default library search directories plus the paths from `<rootfs_dir>/etc/ld.so.conf`.
 ///

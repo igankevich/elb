@@ -1,10 +1,9 @@
 use alloc::ffi::CString;
 use alloc::vec::Vec;
 use core::ffi::CStr;
-use log::log_enabled;
 use log::Level;
+use log::log_enabled;
 
-use crate::constants::*;
 use crate::BlockRead;
 use crate::BlockWrite;
 use crate::DynamicTable;
@@ -24,6 +23,7 @@ use crate::SegmentKind;
 use crate::SpaceAllocator;
 use crate::StringTable;
 use crate::SymbolTable;
+use crate::constants::*;
 
 /// ELF patcher.
 ///
@@ -668,15 +668,14 @@ impl<F: ElfRead + ElfWrite + ElfSeek> ElfPatcher<F> {
             section.virtual_address + section.size
         );
         // Free the corresponding similarly named segment if any.
-        if name == DYNAMIC_SECTION {
-            if let Some(i) = self
+        if name == DYNAMIC_SECTION
+            && let Some(i) = self
                 .elf
                 .segments
                 .iter()
                 .position(|segment| segment.kind == SegmentKind::Dynamic)
-            {
-                self.free_segment(i)?;
-            }
+        {
+            self.free_segment(i)?;
         }
         /*
         // Adjust the size of the corresponding LOAD segment of ALLOC section if any.

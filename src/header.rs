@@ -1,7 +1,5 @@
 use core::ops::Range;
 
-use crate::check_u32;
-use crate::constants::*;
 use crate::ByteOrder;
 use crate::Class;
 use crate::ElfRead;
@@ -10,6 +8,8 @@ use crate::Error;
 use crate::FileKind;
 use crate::Machine;
 use crate::OsAbi;
+use crate::check_u32;
+use crate::constants::*;
 
 /// ELF header.
 #[derive(Debug)]

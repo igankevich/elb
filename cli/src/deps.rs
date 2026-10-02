@@ -6,10 +6,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 
-use elb_dl::glibc;
-use elb_dl::musl;
 use elb_dl::DependencyTree;
 use elb_dl::DynamicLoader;
+use elb_dl::glibc;
+use elb_dl::musl;
 
 use crate::CommonArgs;
 
