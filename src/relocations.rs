@@ -38,18 +38,13 @@ impl EntityIo for Rel {
         class: Class,
         byte_order: ByteOrder,
     ) -> Result<Self, Error> {
-        let offset;
-        let info;
-        match class {
-            Class::Elf32 => {
-                offset = reader.read_u32(byte_order)?.into();
-                info = reader.read_u32(byte_order)?.into();
-            }
-            Class::Elf64 => {
-                offset = reader.read_u64(byte_order)?;
-                info = reader.read_u64(byte_order)?;
-            }
-        }
+        let (offset, info) = match class {
+            Class::Elf32 => (
+                reader.read_u32(byte_order)?.into(),
+                reader.read_u32(byte_order)?.into(),
+            ),
+            Class::Elf64 => (reader.read_u64(byte_order)?, reader.read_u64(byte_order)?),
+        };
         let symbol = to_symbol(info, class);
         let kind = to_kind(info, class);
         Ok(Self {
