@@ -3,13 +3,13 @@ use core::ffi::CStr;
 use core::ops::Deref;
 use core::ops::DerefMut;
 
-use crate::io::*;
 use crate::BlockRead;
 use crate::BlockWrite;
 use crate::ByteOrder;
 use crate::Class;
 use crate::DynamicTag;
 use crate::Error;
+use crate::io::*;
 
 /// Dynamic linking information.
 #[derive(Default, Debug)]

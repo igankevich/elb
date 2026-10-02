@@ -1,13 +1,13 @@
 use std::io::stderr;
 use std::sync::OnceLock;
 
-use log::set_logger;
-use log::set_max_level;
 use log::LevelFilter;
 use log::Log;
 use log::Metadata;
 use log::Record;
 use log::SetLoggerError;
+use log::set_logger;
+use log::set_max_level;
 
 pub struct Logger;
 

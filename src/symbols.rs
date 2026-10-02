@@ -175,9 +175,9 @@ mod tests {
     use arbitrary::Unstructured;
 
     use crate::constants::*;
+    use crate::test::ArbitraryWithClass;
     use crate::test::test_block_io;
     use crate::test::test_entity_io;
-    use crate::test::ArbitraryWithClass;
 
     #[test]
     fn symbol_io() {

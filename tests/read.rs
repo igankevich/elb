@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 
-use fs_err::read_dir;
 use fs_err::File;
+use fs_err::read_dir;
 use std::env::split_paths;
 use std::env::var_os;
 use std::path::PathBuf;

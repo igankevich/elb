@@ -12,11 +12,11 @@ use elb::DynamicTag;
 use elb::Elf;
 use elb::ElfPatcher;
 
-use crate::fs;
-use crate::fs::os::unix::fs::symlink;
 use crate::DependencyTree;
 use crate::DynamicLoader;
 use crate::Error;
+use crate::fs;
+use crate::fs::os::unix::fs::symlink;
 
 /// Relocates ELF together with its dependencies.
 pub struct ElfRelocator {

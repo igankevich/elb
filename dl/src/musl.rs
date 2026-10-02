@@ -6,10 +6,10 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::fs::File;
+use log::Level::Trace;
 use log::log_enabled;
 use log::trace;
 use log::warn;
-use log::Level::Trace;
 
 /// Get library search directories from via `<rootfs_dir>/etc/ld-musl-<arch>.path`.
 ///

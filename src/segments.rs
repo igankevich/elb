@@ -5,10 +5,6 @@ use core::ops::DerefMut;
 use core::ops::Range;
 use log::warn;
 
-use crate::align_down;
-use crate::align_up;
-use crate::check_u32;
-use crate::zero;
 use crate::BlockRead;
 use crate::BlockWrite;
 use crate::ByteOrder;
@@ -21,6 +17,10 @@ use crate::Error;
 use crate::Header;
 use crate::SegmentFlags;
 use crate::SegmentKind;
+use crate::align_down;
+use crate::align_up;
+use crate::check_u32;
+use crate::zero;
 
 /// Segments.
 #[derive(Debug)]
@@ -199,7 +199,7 @@ impl ProgramHeader {
         for segment in self.entries.iter() {
             match segment.kind {
                 ProgramHeader if load_found => {
-                    return Err(Error::NotPreceedingLoadSegment(segment.kind))
+                    return Err(Error::NotPreceedingLoadSegment(segment.kind));
                 }
                 Interpreter if load_found => {
                     // Some binaries don't respect this rule (I'm looking at you, python-3.12),
@@ -521,9 +521,9 @@ mod tests {
     use arbitrary::Unstructured;
 
     use crate::constants::*;
+    use crate::test::ArbitraryWithClass;
     use crate::test::test_block_io;
     use crate::test::test_entity_io;
-    use crate::test::ArbitraryWithClass;
 
     #[test]
     fn segment_io() {

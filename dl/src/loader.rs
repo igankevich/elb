@@ -424,10 +424,10 @@ impl DynamicLoader {
             }
             return Err(Error::FailedToResolve(dep_name.into(), dependent_file));
         }
-        if let Some(interpreter) = interpreter {
-            if !dependencies.contains(&interpreter) {
-                dependencies.push(interpreter);
-            }
+        if let Some(interpreter) = interpreter
+            && !dependencies.contains(&interpreter)
+        {
+            dependencies.push(interpreter);
         }
         tree.insert(dependent_file, dependencies.clone());
         dependencies.retain(|dep| !tree.contains(dep));

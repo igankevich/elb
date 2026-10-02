@@ -1,5 +1,5 @@
-use crate::constants::*;
 use crate::Error;
+use crate::constants::*;
 
 /// Architecture.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]

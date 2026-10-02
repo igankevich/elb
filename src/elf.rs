@@ -2,7 +2,6 @@ use alloc::ffi::CString;
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
-use crate::constants::*;
 use crate::BlockRead;
 use crate::BlockWrite;
 use crate::DynamicTable;
@@ -16,6 +15,7 @@ use crate::SectionHeader;
 use crate::SectionKind;
 use crate::SegmentKind;
 use crate::StringTable;
+use crate::constants::*;
 
 /// ELF file.
 #[derive(Debug)]

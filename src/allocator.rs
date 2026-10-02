@@ -227,11 +227,7 @@ impl<'a> SpaceAllocator<'a> {
             .checked_next_multiple_of(self.page_size)?;
         let padding = {
             let rem = offset % align;
-            if rem != 0 {
-                align - rem
-            } else {
-                0
-            }
+            if rem != 0 { align - rem } else { 0 }
         };
         let file_size = padding.checked_add(file_size)?;
         let memory_size = padding.checked_add(memory_size)?;
