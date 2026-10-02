@@ -84,7 +84,7 @@ impl SectionHeader {
         writer: &mut W,
         i: usize,
     ) -> Result<Section, Error> {
-        let section = std::mem::take(&mut self.entries[i]);
+        let section = core::mem::take(&mut self.entries[i]);
         log::trace!(
             "Freeing file block {:#x}..{:#x}",
             section.offset,
