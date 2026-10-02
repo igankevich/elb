@@ -80,7 +80,7 @@ impl ElfRead for &[u8] {
         if n > self.len() {
             return Err(Error::UnexpectedEof);
         }
-        buf.copy_from_slice(self[..n]);
+        buf.copy_from_slice(&self[..n]);
         *self = &self[n..];
         Ok(())
     }

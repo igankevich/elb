@@ -80,7 +80,7 @@ pub struct SegmentFlagsStr(pub SegmentFlags);
 
 impl std::fmt::Display for SegmentFlagsStr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut flags_str = [b'-', b'-', b'-', b' '];
+        let mut flags_str = *b"--- ";
         for flag in self.0.iter() {
             match flag {
                 SegmentFlags::READABLE => flags_str[0] = b'r',
@@ -98,7 +98,7 @@ pub struct SectionFlagsStr(pub SectionFlags);
 
 impl std::fmt::Display for SectionFlagsStr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut flags_str = [b'-', b'-', b'-', b'-', b'-', b'-', b'-', b'-', b' '];
+        let mut flags_str = *b"-------- ";
         for flag in self.0.iter() {
             match flag {
                 SectionFlags::WRITE => flags_str[0] = b'w',
